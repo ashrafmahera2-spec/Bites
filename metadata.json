@@ -1,0 +1,8 @@
+{
+  "name": "Bite's Digital Menu",
+  "description": "منيو إلكتروني احترافي مع سلة مشتريات، إرسال الطلبات عبر واتساب، لوحة تحكم كاملة للآدمن، ودعم PWA.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
