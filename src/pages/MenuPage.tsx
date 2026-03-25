@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import Navbar from '../components/Navbar';
 import { useCart } from '../contexts/CartContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Minus, ShoppingBag, Search, X } from 'lucide-react';
+import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 
 interface Category {
   id: string;
@@ -22,25 +24,46 @@ interface Product {
   isAvailable: boolean;
 }
 
+interface Offer {
+  id: string | number;
+  title: string;
+  description: string;
+  imageUrl: string;
+  isActive: boolean;
+}
+
 const MenuPage: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [settings, setSettings] = useState<any>(null);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const { addItem, items, updateQuantity } = useCart();
+  const { t, isRTL } = useLanguage();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [cats, prods] = await Promise.all([
+        const [cats, prods, offs, sets] = await Promise.all([
           api.getCategories(),
-          api.getProducts()
+          api.getProducts(),
+          api.getOffers(),
+          api.getSettings()
         ]);
         setCategories(cats);
         setProducts(prods);
-      } catch (error) {
-        console.error("Error fetching menu data:", error);
+        setOffers(offs.filter((o: Offer) => o.isActive));
+        setSettings(sets);
+        setError(null);
+      } catch (err: any) {
+        console.error("Error fetching menu data:", err);
+        setError(err.message || "Failed to fetch menu data");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -51,9 +74,10 @@ const MenuPage: React.FC = () => {
   }, []);
 
   const filteredProducts = Array.isArray(products) ? products.filter(p => {
+    if (!p) return false;
     const matchesCategory = activeCategory === 'all' || p.categoryId === activeCategory;
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         p.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                         (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   }) : [];
 
@@ -63,23 +87,86 @@ const MenuPage: React.FC = () => {
       
       {/* Hero Section */}
       <div className="bg-orange-600 text-white py-12 px-4 text-center">
-        <h1 className="text-4xl font-bold mb-2">أهلاً بك في Bite's</h1>
-        <p className="text-orange-100">اطلب ألذ الوجبات بضغطة زر</p>
+        <div className="flex flex-col items-center gap-4 mb-6">
+          <div className="bg-white p-4 rounded-3xl shadow-2xl shadow-black/20 w-24 h-24 flex items-center justify-center overflow-hidden">
+            {settings?.logoUrl ? (
+              <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+            ) : (
+              <ShoppingBag size={48} className="text-orange-600" />
+            )}
+          </div>
+          <h1 className="text-4xl font-bold">{settings?.restaurantName || t('hero.title')}</h1>
+        </div>
+        <p className="text-orange-100">{t('hero.subtitle')}</p>
         
         {/* Search Bar */}
         <div className="max-w-md mx-auto mt-8 relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <Search className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
           <input
             type="text"
-            placeholder="ابحث عن وجبتك المفضلة..."
-            className="w-full py-4 pl-12 pr-6 rounded-2xl text-gray-900 focus:ring-4 focus:ring-orange-500/20 outline-none shadow-xl transition-all"
+            placeholder={t('search.placeholder')}
+            className={`w-full py-4 ${isRTL ? 'pr-12 pl-6' : 'pl-12 pr-6'} rounded-2xl text-gray-900 focus:ring-4 focus:ring-orange-500/20 outline-none shadow-xl transition-all`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
       </div>
 
+      {/* Offers Section */}
+      {offers.length > 0 && !searchQuery && activeCategory === 'all' && (
+        <div className="max-w-7xl mx-auto px-4 mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900">{t('offers.title')}</h2>
+          </div>
+          <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+            {offers.map(offer => (
+              <motion.div
+                key={offer.id}
+                initial={{ opacity: 0, x: isRTL ? 20 : -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="min-w-[300px] md:min-w-[400px] bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 flex flex-col md:flex-row"
+              >
+                <div className="h-40 md:h-auto md:w-1/3 relative">
+                  <img 
+                    src={offer.imageUrl || 'https://picsum.photos/seed/offer/400/300'} 
+                    alt={offer.title} 
+                    className="w-full h-full object-cover"
+                  />
+                  <div className={`absolute top-2 ${isRTL ? 'right-2' : 'left-2'} bg-orange-600 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider`}>
+                    {t('offers.limited')}
+                  </div>
+                </div>
+                <div className="p-4 flex-1 flex flex-col justify-center">
+                  <h3 className="font-bold text-gray-900 mb-1">{offer.title}</h3>
+                  <p className="text-sm text-gray-500 line-clamp-2">{offer.description}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Categories Bar */}
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 mt-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertCircle size={20} />
+              <p className="font-medium">
+                {error === 'DB not connected' 
+                  ? (isRTL ? 'يرجى إعداد قاعدة البيانات من لوحة التحكم لتفعيل المتجر.' : 'Please set up the database from the admin panel to activate the store.')
+                  : `${t('common.error')}: ${error}`}
+              </p>
+            </div>
+            {error === 'DB not connected' && (
+              <Link to="/login" className="bg-red-600 text-white px-4 py-1.5 rounded-xl text-sm font-bold hover:bg-red-700 transition-colors">
+                {t('nav.admin')}
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="sticky top-[61px] z-40 bg-white shadow-sm overflow-x-auto whitespace-nowrap px-4 py-3 scrollbar-hide">
         <div className="flex gap-2 max-w-7xl mx-auto">
           <button
@@ -88,7 +175,7 @@ const MenuPage: React.FC = () => {
               activeCategory === 'all' ? 'bg-orange-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            الكل
+            {t('categories.all')}
           </button>
           {Array.isArray(categories) && categories.map(cat => (
             <button
@@ -106,7 +193,24 @@ const MenuPage: React.FC = () => {
 
       {/* Products Grid */}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {filteredProducts.length > 0 ? (
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 animate-pulse">
+                <div className="h-48 bg-gray-200" />
+                <div className="p-4 space-y-3">
+                  <div className="flex justify-between">
+                    <div className="h-5 bg-gray-200 rounded w-1/2" />
+                    <div className="h-5 bg-gray-200 rounded w-1/4" />
+                  </div>
+                  <div className="h-4 bg-gray-200 rounded w-full" />
+                  <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  <div className="h-10 bg-gray-200 rounded w-full mt-4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredProducts.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             <AnimatePresence mode="popLayout">
               {filteredProducts.map(product => {
@@ -132,18 +236,18 @@ const MenuPage: React.FC = () => {
                       />
                       {!product.isAvailable && (
                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                          <span className="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold">غير متوفر</span>
+                          <span className="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold">{t('product.unavailable')}</span>
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                        <span className="text-white text-sm font-medium">عرض التفاصيل</span>
+                        <span className="text-white text-sm font-medium">{t('product.details')}</span>
                       </div>
                     </div>
                     
                     <div className="p-4">
                       <div className="flex justify-between items-start mb-2">
                         <h3 className="text-lg font-bold text-gray-900 line-clamp-1">{product.name}</h3>
-                        <span className="text-orange-600 font-bold whitespace-nowrap">{product.price} ج.م</span>
+                        <span className="text-orange-600 font-bold whitespace-nowrap">{product.price} {t('common.currency')}</span>
                       </div>
                       <p className="text-gray-500 text-sm mb-4 line-clamp-2 h-10">{product.description}</p>
                       
@@ -152,7 +256,10 @@ const MenuPage: React.FC = () => {
                           {cartItem ? (
                             <div className="flex items-center gap-3 bg-gray-100 rounded-full px-3 py-1">
                               <button 
-                                onClick={() => updateQuantity(product.id, cartItem.quantity - 1)}
+                                onClick={() => {
+                                  updateQuantity(product.id, cartItem.quantity - 1);
+                                  if (cartItem.quantity === 1) toast.error(t('product.removed'));
+                                }}
                                 className="p-1 hover:bg-white rounded-full transition-colors"
                               >
                                 <Minus size={18} className="text-orange-600" />
@@ -167,11 +274,14 @@ const MenuPage: React.FC = () => {
                             </div>
                           ) : (
                             <button
-                              onClick={() => addItem({ ...product, quantity: 1 })}
+                              onClick={() => {
+                                addItem({ ...product, quantity: 1 });
+                                toast.success(t('product.added').replace('{name}', product.name));
+                              }}
                               className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-xl font-bold transition-colors"
                             >
                               <Plus size={20} />
-                              أضف للسلة
+                              {t('product.add_to_cart')}
                             </button>
                           )}
                         </div>
@@ -187,8 +297,8 @@ const MenuPage: React.FC = () => {
             <div className="bg-gray-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
               <Search size={32} className="text-gray-400" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900">لا توجد نتائج</h3>
-            <p className="text-gray-500">جرب البحث بكلمات أخرى أو اختر قسماً آخر</p>
+            <h3 className="text-xl font-bold text-gray-900">{t('search.no_results')}</h3>
+            <p className="text-gray-500">{t('search.no_results_subtitle')}</p>
           </div>
         )}
       </div>
@@ -205,7 +315,7 @@ const MenuPage: React.FC = () => {
             >
               <button 
                 onClick={() => setSelectedProduct(null)}
-                className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur-md p-2 rounded-full shadow-md hover:bg-white transition-colors"
+                className={`absolute top-4 ${isRTL ? 'right-4' : 'left-4'} z-10 bg-white/80 backdrop-blur-md p-2 rounded-full shadow-md hover:bg-white transition-colors`}
               >
                 <X size={20} className="text-gray-900" />
               </button>
@@ -224,7 +334,7 @@ const MenuPage: React.FC = () => {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">{selectedProduct.name}</h2>
-                    <p className="text-orange-600 font-bold text-xl mt-1">{selectedProduct.price} ج.م</p>
+                    <p className="text-orange-600 font-bold text-xl mt-1">{selectedProduct.price} {t('common.currency')}</p>
                   </div>
                   <div className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-sm font-bold">
                     {categories.find(c => c.id === selectedProduct.categoryId)?.name}
@@ -263,13 +373,13 @@ const MenuPage: React.FC = () => {
                         className="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2"
                       >
                         <Plus size={24} />
-                        أضف للسلة
+                        {t('product.add_to_cart')}
                       </button>
                     )}
                   </div>
                 ) : (
                   <div className="bg-red-50 text-red-600 py-4 rounded-2xl font-bold text-center">
-                    هذا المنتج غير متوفر حالياً
+                    {t('product.unavailable')}
                   </div>
                 )}
               </div>
@@ -294,17 +404,43 @@ const MenuPage: React.FC = () => {
                 <ShoppingBag size={24} />
               </div>
               <div>
-                <p className="text-xs text-orange-100">سلة المشتريات</p>
-                <p className="font-bold">{items.length} منتجات</p>
+                <p className="text-xs text-orange-100">{t('nav.cart')}</p>
+                <p className="font-bold">{items.length} {t('common.items')}</p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-orange-100">الإجمالي</p>
-              <p className="font-bold">{items.reduce((s, i) => s + i.price * i.quantity, 0)} ج.م</p>
+            <div className={`${isRTL ? 'text-left' : 'text-right'}`}>
+              <p className="text-xs text-orange-100">{t('cart.total')}</p>
+              <p className="font-bold">{items.reduce((s, i) => s + i.price * i.quantity, 0)} {t('common.currency')}</p>
             </div>
           </Link>
         </motion.div>
       )}
+
+      {/* WhatsApp Floating Button */}
+      {settings?.whatsappNumber && (
+        <a
+          href={`https://wa.me/${settings.whatsappNumber}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-24 right-6 z-50 bg-green-500 text-white p-4 rounded-full shadow-2xl hover:bg-green-600 transition-all hover:scale-110 active:scale-95"
+          aria-label="تواصل معنا عبر واتساب"
+        >
+          <MessageCircle size={28} />
+        </a>
+      )}
+
+      {/* Development Credits */}
+      <div className="py-8 text-center border-t border-gray-100 mt-12">
+        <p className="text-gray-400 text-sm">{t('common.developed_by')}</p>
+        <a 
+          href="https://wa.me/201000251645" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-orange-600 font-bold hover:underline transition-all"
+        >
+          mamlinc
+        </a>
+      </div>
     </div>
   );
 };

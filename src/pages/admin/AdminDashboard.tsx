@@ -1,60 +1,107 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database } from 'lucide-react';
+import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { api } from '../../services/api';
+import { toast } from 'sonner';
 
 const AdminDashboard: React.FC = () => {
   const { logout, user } = useAuth();
+  const { t, isRTL } = useLanguage();
   const location = useLocation();
   const [pendingCount, setPendingCount] = useState(0);
+  const [lastErrorId, setLastErrorId] = useState<number | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const fetchPending = async () => {
       try {
         const orders = await api.getOrders();
-        setPendingCount(orders.filter((o: any) => o.status === 'pending').length);
+        const safeOrders = Array.isArray(orders) ? orders : [];
+        setPendingCount(safeOrders.filter((o: any) => o && o.status === 'pending').length);
       } catch (error) {
         console.error("Error fetching pending orders:", error);
       }
     };
+
+    const fetchErrors = async () => {
+      try {
+        const errors = await api.getErrors();
+        if (errors && errors.length > 0) {
+          const latestError = errors[0];
+          if (lastErrorId === null) {
+            setLastErrorId(latestError.id);
+          } else if (latestError.id > lastErrorId) {
+            setLastErrorId(latestError.id);
+            toast.error(t('admin.error_alert'), {
+              description: latestError.message,
+              duration: 5000,
+              icon: <AlertTriangle className="text-red-500" />
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching menu errors:", error);
+      }
+    };
+
     fetchPending();
-    const interval = setInterval(fetchPending, 10000);
+    fetchErrors();
+    const interval = setInterval(() => {
+      fetchPending();
+      fetchErrors();
+    }, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [lastErrorId, t]);
+
+  // Close mobile menu when location changes
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const menuItems = [
-    { path: '/admin', icon: LayoutDashboard, label: 'نظرة عامة' },
-    { path: '/admin/orders', icon: ClipboardList, label: 'الطلبات' },
-    { path: '/admin/products', icon: Package, label: 'المنتجات' },
-    { path: '/admin/categories', icon: List, label: 'الأقسام' },
-    { path: '/admin/settings', icon: Settings, label: 'الإعدادات' },
-    { path: '/admin/database', icon: Database, label: 'قاعدة البيانات' },
+    { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview') },
+    { path: '/admin/orders', icon: ClipboardList, label: t('admin.nav_orders') },
+    { path: '/admin/products', icon: Package, label: t('admin.nav_products') },
+    { path: '/admin/categories', icon: List, label: t('admin.nav_categories') },
+    { path: '/admin/offers', icon: Tag, label: t('admin.nav_offers') },
+    { path: '/admin/errors', icon: AlertTriangle, label: t('admin.nav_errors') },
+    { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings') },
+    { path: '/admin/database', icon: Database, label: t('admin.nav_database') },
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+    <div className={`min-h-screen bg-gray-50 flex flex-col lg:flex-row ${isRTL ? 'lg:flex-row-reverse' : ''}`}>
       {/* Sidebar */}
-      <aside className="w-full lg:w-64 bg-white border-b lg:border-r border-gray-200 lg:sticky lg:top-0 lg:h-screen z-50">
+      <aside className={`w-full lg:w-64 bg-white border-b lg:border-r border-gray-200 lg:sticky lg:top-0 lg:h-screen z-50 ${isRTL ? 'lg:border-r-0 lg:border-l' : ''}`}>
         <div className="p-6 flex items-center justify-between lg:block">
-          <Link to="/" className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
-            Bite's Admin
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="bg-orange-600 p-2 rounded-xl shadow-lg shadow-orange-600/20 group-hover:scale-110 transition-transform">
+              <Settings size={22} className="text-white" />
+            </div>
+            <span className="text-xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
+              Bite's Admin
+            </span>
           </Link>
-          <button className="lg:hidden p-2 hover:bg-gray-100 rounded-lg">
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg text-gray-600"
+          >
             <LayoutDashboard size={24} />
           </button>
         </div>
 
-        <nav className="px-4 py-2 space-y-1">
+        <nav className={`px-4 py-2 space-y-1 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
           {menuItems.map(item => (
             <Link
               key={item.path}
               to={item.path}
               className={`flex items-center justify-between px-4 py-3 rounded-xl font-medium transition-all ${
                 location.pathname === item.path ? 'bg-orange-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              } ${isRTL ? 'flex-row-reverse' : ''}`}
             >
-              <div className="flex items-center gap-3">
+              <div className={`flex items-center gap-3 ${isRTL ? 'flex-row-reverse' : ''}`}>
                 <item.icon size={20} />
                 {item.label}
               </div>
@@ -67,24 +114,34 @@ const AdminDashboard: React.FC = () => {
               )}
             </Link>
           ))}
+          
+          <div className="pt-4 mt-4 border-t border-gray-100">
+            <Link
+              to="/"
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-gray-600 hover:bg-gray-100 transition-all ${isRTL ? 'flex-row-reverse' : ''}`}
+            >
+              <LogOut size={20} className={isRTL ? '' : 'rotate-180'} />
+              {t('admin.nav_back_to_menu')}
+            </Link>
+          </div>
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-100 hidden lg:block">
-          <div className="flex items-center gap-3 mb-4 px-2">
+          <div className={`flex items-center gap-3 mb-4 px-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
             <div className="bg-orange-600 text-white p-2 rounded-full">
               <LayoutDashboard size={20} />
             </div>
-            <div className="text-right">
+            <div className={isRTL ? 'text-left' : 'text-right'}>
               <p className="text-sm font-bold text-gray-900">{user?.email?.split('@')[0]}</p>
-              <p className="text-xs text-gray-500">مدير النظام</p>
+              <p className="text-xs text-gray-500">{t('login.admin_role')}</p>
             </div>
           </div>
           <button
             onClick={logout}
-            className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-all"
+            className={`w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-all ${isRTL ? 'flex-row-reverse' : ''}`}
           >
             <LogOut size={18} />
-            تسجيل الخروج
+            {t('admin.logout')}
           </button>
         </div>
       </aside>

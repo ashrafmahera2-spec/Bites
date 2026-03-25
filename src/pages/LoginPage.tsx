@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn, User as UserIcon, Lock } from 'lucide-react';
 import Navbar from '../components/Navbar';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const LoginPage: React.FC = () => {
   const { login, user, logout, isAdmin } = useAuth();
+  const { t, isRTL } = useLanguage();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
@@ -12,7 +14,7 @@ const LoginPage: React.FC = () => {
     e.preventDefault();
     const success = await login(password);
     if (!success) {
-      setError('كلمة المرور غير صحيحة');
+      setError(t('login.error'));
     }
   };
 
@@ -25,24 +27,24 @@ const LoginPage: React.FC = () => {
             <LogIn size={40} className="text-orange-600" />
           </div>
           
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">دخول الإدارة</h2>
-          <p className="text-gray-500 mb-8">أدخل كلمة المرور للوصول للوحة التحكم</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('login.title')}</h2>
+          <p className="text-gray-500 mb-8">{t('login.subtitle')}</p>
           
           {user ? (
             <div className="space-y-4">
-              <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+              <div className={`flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 ${isRTL ? 'flex-row-reverse' : ''}`}>
                 <div className="bg-orange-600 text-white p-3 rounded-full">
                   <Lock size={24} />
                 </div>
-                <div className="text-right">
-                  <p className="font-bold text-gray-900">أهلاً بك</p>
-                  <p className="text-xs text-gray-500">مدير النظام</p>
+                <div className={isRTL ? 'text-right' : 'text-left'}>
+                  <p className="font-bold text-gray-900">{t('login.welcome')}</p>
+                  <p className="text-xs text-gray-500">{t('login.admin_role')}</p>
                 </div>
               </div>
               
               {isAdmin && (
                 <a href="/admin" className="block w-full bg-orange-600 text-white py-3 rounded-xl font-bold hover:bg-orange-700 transition-all">
-                  لوحة التحكم
+                  {t('admin.title')}
                 </a>
               )}
               
@@ -50,7 +52,7 @@ const LoginPage: React.FC = () => {
                 onClick={logout}
                 className="w-full bg-gray-100 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
               >
-                تسجيل الخروج
+                {t('admin.logout')}
               </button>
             </div>
           ) : (
@@ -58,11 +60,11 @@ const LoginPage: React.FC = () => {
               {error && <p className="text-red-500 text-sm font-bold mb-4">{error}</p>}
               
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <Lock className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
                 <input
                   type="password"
-                  placeholder="كلمة المرور"
-                  className="w-full py-4 pl-12 pr-6 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all"
+                  placeholder={t('login.password_placeholder')}
+                  className={`w-full py-4 ${isRTL ? 'pr-12 pl-6' : 'pl-12 pr-6'} rounded-2xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all`}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -73,7 +75,7 @@ const LoginPage: React.FC = () => {
                 type="submit"
                 className="w-full bg-orange-600 text-white py-4 rounded-2xl font-bold hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20"
               >
-                دخول
+                {t('login.button')}
               </button>
             </form>
           )}

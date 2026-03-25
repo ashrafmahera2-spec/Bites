@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ErrorBoundary as ReactErrorBoundary } from 'react-error-boundary';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
+import { api } from '../services/api';
 
 interface FallbackProps {
   error: Error;
@@ -44,10 +45,21 @@ const ErrorFallback: React.FC<FallbackProps> = ({ error, resetErrorBoundary }) =
 };
 
 const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const handleError = (error: Error, info: { componentStack: string }) => {
+    // Log error to server
+    api.logError({
+      message: error.message,
+      stack: info.componentStack,
+      url: window.location.href,
+      userAgent: navigator.userAgent
+    });
+  };
+
   return (
     <ReactErrorBoundary
       FallbackComponent={ErrorFallback}
       onReset={() => window.location.reload()}
+      onError={handleError}
     >
       {children}
     </ReactErrorBoundary>
