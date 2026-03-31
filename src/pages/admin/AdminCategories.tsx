@@ -25,9 +25,10 @@ const AdminCategories: React.FC = () => {
   const fetchCategories = async () => {
     try {
       const cats = await api.getCategories();
-      setCategories(cats);
+      setCategories(Array.isArray(cats) ? cats : []);
     } catch (error) {
       console.error("Error fetching categories:", error);
+      setCategories([]);
     }
   };
 

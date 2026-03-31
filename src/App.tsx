@@ -18,6 +18,11 @@ const CartPage = lazy(() => import('./pages/CartPage'));
 const AdminOrders = lazy(() => import('./pages/admin/AdminOrders'));
 const AdminOffers = lazy(() => import('./pages/admin/AdminOffers'));
 const AdminErrors = lazy(() => import('./pages/admin/AdminErrors'));
+const AdminKitchen = lazy(() => import('./pages/admin/AdminKitchen'));
+const AdminCashier = lazy(() => import('./pages/admin/AdminCashier'));
+const AdminStaff = lazy(() => import('./pages/admin/AdminStaff'));
+const AdminBranches = lazy(() => import('./pages/admin/AdminBranches'));
+const KitchenStatus = lazy(() => import('./pages/KitchenStatus'));
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAdmin, loading } = useAuth();
@@ -37,6 +42,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<MenuPage />} />
                 <Route path="/cart" element={<CartPage />} />
+                <Route path="/status" element={<KitchenStatus />} />
                 <Route path="/login" element={<LoginPage />} />
                 
                 <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>}>
@@ -46,6 +52,10 @@ export default function App() {
                   <Route path="categories" element={<AdminCategories />} />
                   <Route path="offers" element={<AdminOffers />} />
                   <Route path="errors" element={<AdminErrors />} />
+                  <Route path="kitchen" element={<AdminKitchen />} />
+                  <Route path="branches" element={<AdminBranches />} />
+                  <Route path="cashier" element={<AdminCashier />} />
+                  <Route path="staff" element={<AdminStaff />} />
                   <Route path="settings" element={<AdminSettings />} />
                   <Route path="database" element={<AdminDatabase />} />
                 </Route>

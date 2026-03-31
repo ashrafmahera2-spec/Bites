@@ -20,7 +20,7 @@ const AdminErrors: React.FC = () => {
     try {
       setLoading(true);
       const data = await api.getErrors();
-      setErrors(data);
+      setErrors(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error fetching errors:", error);
       toast.error('فشل تحميل سجل الأخطاء');
@@ -93,7 +93,7 @@ const AdminErrors: React.FC = () => {
                   <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                     <span className="flex items-center gap-1">
                       <Clock size={14} />
-                      {new Date(error.createdAt).toLocaleString('ar-EG')}
+                      {error.createdAt ? new Date(error.createdAt).toLocaleString('ar-EG') : 'N/A'}
                     </span>
                     <span className="flex items-center gap-1">
                       <Globe size={14} />

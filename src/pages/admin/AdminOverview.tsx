@@ -1,27 +1,39 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
-import { ShoppingBag, TrendingUp, Users, Clock, CheckCircle, XCircle, Calendar as CalendarIcon, Package, PieChart as PieChartIcon, BarChart as BarChartIcon, AlertCircle, Settings } from 'lucide-react';
+import { ShoppingBag, TrendingUp, Users, Clock, CheckCircle, XCircle, Calendar as CalendarIcon, Package, PieChart as PieChartIcon, BarChart as BarChartIcon, AlertCircle, Settings, UtensilsCrossed, Building2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell, PieChart, Pie } from 'recharts';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const NEW_ORDER_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
 
 interface Order {
   id: string;
   total: number;
-  status: 'pending' | 'completed' | 'cancelled';
+  status: 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled';
+  branchId?: number;
   createdAt: string;
   customerName: string;
   type: 'delivery' | 'pickup';
   items: { name: string; quantity: number; price: number }[];
 }
 
+interface Branch {
+  id: number;
+  name: string;
+}
+
 const AdminOverview: React.FC = () => {
   const { t, isRTL, language } = useLanguage();
+  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<number | 'all'>(
+    user?.role === 'admin' ? 'all' : (user?.branchId || 'all')
+  );
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,10 +45,11 @@ const AdminOverview: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [ordersData, productsData, categoriesData, healthData] = await Promise.all([
-          api.getOrders(),
+        const [ordersData, productsData, categoriesData, branchesData, healthData] = await Promise.all([
+          api.getOrders(selectedBranchId === 'all' ? undefined : selectedBranchId),
           api.getProducts(),
           api.getCategories(),
+          api.getBranches(),
           api.getHealth()
         ]);
         
@@ -55,6 +68,7 @@ const AdminOverview: React.FC = () => {
         setOrders(ordersData);
         setProducts(productsData);
         setCategories(categoriesData);
+        setBranches(Array.isArray(branchesData) ? branchesData : []);
         setDbStatus(healthData.dbStatus);
         setPrevOrderCount(ordersData.length);
         setError(null);
@@ -68,7 +82,7 @@ const AdminOverview: React.FC = () => {
     fetchData();
     const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
-  }, [prevOrderCount, t]);
+  }, [prevOrderCount, t, selectedBranchId]);
 
   const safeOrders = Array.isArray(orders) ? orders : [];
   const safeProducts = Array.isArray(products) ? products : [];
@@ -78,6 +92,8 @@ const AdminOverview: React.FC = () => {
     totalOrders: safeOrders.length,
     totalRevenue: safeOrders.filter(o => o && o.status === 'completed').reduce((acc, o) => acc + (Number(o.total) || 0), 0),
     pendingOrders: safeOrders.filter(o => o && o.status === 'pending').length,
+    inProgressOrders: safeOrders.filter(o => o && o.status === 'in-progress').length,
+    readyOrders: safeOrders.filter(o => o && o.status === 'ready').length,
     completedOrders: safeOrders.filter(o => o && o.status === 'completed').length,
     cancelledOrders: safeOrders.filter(o => o && o.status === 'cancelled').length,
   };
@@ -153,6 +169,7 @@ const AdminOverview: React.FC = () => {
     { label: t('admin.stat_total_revenue'), value: `${stats.totalRevenue} ${t('common.currency')}`, icon: TrendingUp, color: 'bg-green-500' },
     { label: t('admin.stat_pending_orders'), value: stats.pendingOrders, icon: Clock, color: 'bg-orange-500' },
     { label: t('admin.stat_completed_orders'), value: stats.completedOrders, icon: CheckCircle, color: 'bg-emerald-500' },
+    { label: isRTL ? 'في المطبخ' : 'In Kitchen', value: stats.inProgressOrders + stats.pendingOrders, icon: UtensilsCrossed, color: 'bg-indigo-500' },
   ];
 
   if (loading) return <div className="flex items-center justify-center h-64">{t('common.loading')}</div>;
@@ -168,6 +185,20 @@ const AdminOverview: React.FC = () => {
           >
             {t('admin.view_menu')}
           </Link>
+          <div className="relative">
+            <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+            <select
+              className={`${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              disabled={user?.role !== 'admin'}
+            >
+              {user?.role === 'admin' && <option value="all">{isRTL ? 'جميع الفروع' : 'All Branches'}</option>}
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
           {t('admin.last_update')}: {new Date().toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US')}
@@ -265,6 +296,15 @@ const AdminOverview: React.FC = () => {
           <div>
             <p className="font-bold text-gray-900">{t('admin.quick_settings')}</p>
             <p className="text-xs text-gray-500">{t('admin.quick_settings_subtitle')}</p>
+          </div>
+        </Link>
+        <Link to="/admin/kitchen" className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 hover:bg-gray-50 transition-all group ${isRTL ? 'flex-row-reverse text-right' : ''}`}>
+          <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600 group-hover:scale-110 transition-transform">
+            <UtensilsCrossed size={24} />
+          </div>
+          <div>
+            <p className="font-bold text-gray-900">{isRTL ? 'شاشة المطبخ' : 'Kitchen Screen'}</p>
+            <p className="text-xs text-gray-500">{isRTL ? 'إدارة تحضير الطلبات' : 'Manage order preparation'}</p>
           </div>
         </Link>
       </div>
@@ -440,6 +480,8 @@ const AdminOverview: React.FC = () => {
           <div className="space-y-6">
             {[
               { label: t('admin.status_completed'), count: stats.completedOrders, total: stats.totalOrders, color: 'bg-green-500' },
+              { label: isRTL ? 'جاهز' : 'Ready', count: stats.readyOrders, total: stats.totalOrders, color: 'bg-indigo-500' },
+              { label: isRTL ? 'جاري التحضير' : 'In Progress', count: stats.inProgressOrders, total: stats.totalOrders, color: 'bg-blue-500' },
               { label: t('admin.status_pending'), count: stats.pendingOrders, total: stats.totalOrders, color: 'bg-orange-500' },
               { label: t('admin.status_cancelled'), count: stats.cancelledOrders, total: stats.totalOrders, color: 'bg-red-500' },
             ].map((item, idx) => (
@@ -503,10 +545,14 @@ const AdminOverview: React.FC = () => {
                   <td className="px-4 py-4">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
                       order.status === 'pending' ? 'bg-orange-100 text-orange-600' :
+                      order.status === 'in-progress' ? 'bg-blue-100 text-blue-600' :
+                      order.status === 'ready' ? 'bg-indigo-100 text-indigo-600' :
                       order.status === 'completed' ? 'bg-green-100 text-green-600' :
                       'bg-red-100 text-red-600'
                     }`}>
                       {order.status === 'pending' ? t('admin.status_pending') :
+                       order.status === 'in-progress' ? (isRTL ? 'تحضير' : 'Prep') :
+                       order.status === 'ready' ? (isRTL ? 'جاهز' : 'Ready') :
                        order.status === 'completed' ? t('admin.status_completed') : t('admin.status_cancelled')}
                     </span>
                   </td>

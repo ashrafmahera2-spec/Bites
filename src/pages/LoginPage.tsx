@@ -7,12 +7,13 @@ import { useLanguage } from '../contexts/LanguageContext';
 const LoginPage: React.FC = () => {
   const { login, user, logout, isAdmin } = useAuth();
   const { t, isRTL } = useLanguage();
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await login(password);
+    const success = await login(username, password);
     if (!success) {
       setError(t('login.error'));
     }
@@ -59,6 +60,18 @@ const LoginPage: React.FC = () => {
             <form onSubmit={handleLogin} className="space-y-4">
               {error && <p className="text-red-500 text-sm font-bold mb-4">{error}</p>}
               
+              <div className="relative">
+                <UserIcon className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
+                <input
+                  type="text"
+                  placeholder="اسم المستخدم"
+                  className={`w-full py-4 ${isRTL ? 'pr-12 pl-6' : 'pl-12 pr-6'} rounded-2xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all`}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+
               <div className="relative">
                 <Lock className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
                 <input

@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { Plus, Edit2, Trash2, Image as ImageIcon, Check, X, Search, Filter } from 'lucide-react';
+import { Plus, Edit2, Trash2, Image as ImageIcon, Check, X, Search, Filter, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Product {
   id: string;
   name: string;
   description: string;
+  ingredients: string;
   price: number;
   imageUrl: string;
   categoryId: string;
@@ -20,10 +23,18 @@ interface Category {
   name: string;
 }
 
+interface Branch {
+  id: number;
+  name: string;
+}
+
 const AdminProducts: React.FC = () => {
   const { t, isRTL } = useLanguage();
+  const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | number>(user?.role === 'admin' ? 'all' : (user?.branchId || 'all'));
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -31,6 +42,7 @@ const AdminProducts: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    ingredients: '',
     price: 0,
     imageUrl: '',
     categoryId: '',
@@ -54,20 +66,25 @@ const AdminProducts: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const [prods, cats] = await Promise.all([
-        api.getProducts(),
-        api.getCategories()
+      const [prods, cats, brs] = await Promise.all([
+        api.getProducts(selectedBranchId === 'all' ? undefined : selectedBranchId),
+        api.getCategories(),
+        api.getBranches()
       ]);
-      setProducts(prods);
-      setCategories(cats);
+      setProducts(Array.isArray(prods) ? prods : []);
+      setCategories(Array.isArray(cats) ? cats : []);
+      setBranches(Array.isArray(brs) ? brs : []);
     } catch (error) {
-      console.error("Error fetching products/categories:", error);
+      console.error("Error fetching products/categories/branches:", error);
+      setProducts([]);
+      setCategories([]);
+      setBranches([]);
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedBranchId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,7 +98,7 @@ const AdminProducts: React.FC = () => {
       }
       setIsModalOpen(false);
       setEditingProduct(null);
-      setFormData({ name: '', description: '', price: 0, imageUrl: '', categoryId: '', isAvailable: true });
+      setFormData({ name: '', description: '', ingredients: '', price: 0, imageUrl: '', categoryId: '', isAvailable: true });
       fetchData();
     } catch (error) {
       console.error("Error saving product:", error);
@@ -104,10 +121,14 @@ const AdminProducts: React.FC = () => {
 
   const toggleAvailability = async (product: Product) => {
     try {
-      await api.updateProduct(product.id, {
-        ...product,
-        isAvailable: !product.isAvailable
-      });
+      if (selectedBranchId === 'all') {
+        await api.updateProduct(product.id, {
+          ...product,
+          isAvailable: !product.isAvailable
+        });
+      } else {
+        await api.updateProductAvailability(selectedBranchId, product.id, !product.isAvailable);
+      }
       toast.success(product.isAvailable 
         ? t('admin.product_marked_unavailable')
         : t('admin.product_marked_available')
@@ -161,6 +182,20 @@ const AdminProducts: React.FC = () => {
             <option value="all">{t('admin.all_categories')}</option>
             {Array.isArray(categories) && categories.map(cat => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="relative">
+          <Building2 className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+          <select
+            className={`${isRTL ? 'pr-12 pl-8' : 'pl-12 pr-8'} py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white min-w-[150px] disabled:bg-gray-50 disabled:text-gray-500`}
+            value={selectedBranchId}
+            onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            disabled={user?.role !== 'admin'}
+          >
+            {user?.role === 'admin' && <option value="all">جميع الفروع (عام)</option>}
+            {branches.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
         </div>
@@ -292,6 +327,15 @@ const AdminProducts: React.FC = () => {
                     className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[80px] ${isRTL ? 'text-right' : 'text-left'}`}
                     value={formData.description}
                     onChange={e => setFormData({ ...formData, description: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">المكونات (اختياري)</label>
+                  <textarea
+                    placeholder="مثال: طماطم، خس، صوص خاص..."
+                    className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[60px] ${isRTL ? 'text-right' : 'text-left'}`}
+                    value={formData.ingredients}
+                    onChange={e => setFormData({ ...formData, ingredients: e.target.value })}
                   />
                 </div>
                 <div>

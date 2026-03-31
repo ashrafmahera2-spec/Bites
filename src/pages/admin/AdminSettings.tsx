@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
-import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X } from 'lucide-react';
+import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -32,6 +32,14 @@ interface Settings {
   };
 }
 
+interface PwaSettings {
+  name: string;
+  shortName: string;
+  description: string;
+  themeColor: string;
+  backgroundColor: string;
+}
+
 const AdminSettings: React.FC = () => {
   const { t, isRTL } = useLanguage();
   const [settings, setSettings] = useState<Settings>({
@@ -61,6 +69,14 @@ const AdminSettings: React.FC = () => {
     }
   });
 
+  const [pwaSettings, setPwaSettings] = useState<PwaSettings>({
+    name: '',
+    shortName: '',
+    description: '',
+    themeColor: '#f97316',
+    backgroundColor: '#ffffff'
+  });
+
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -83,7 +99,11 @@ const AdminSettings: React.FC = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const data = await api.getSettings();
+        const [data, pwaData] = await Promise.all([
+          api.getSettings(),
+          api.getPwaSettings()
+        ]);
+        
         if (data) {
           setSettings(prev => ({
             ...prev,
@@ -92,6 +112,10 @@ const AdminSettings: React.FC = () => {
             openingHours: { ...prev.openingHours, ...(data.openingHours || {}) },
             socialLinks: { ...prev.socialLinks, ...(data.socialLinks || {}) }
           }));
+        }
+
+        if (pwaData) {
+          setPwaSettings(pwaData);
         }
       } catch (error) {
         console.error("Error fetching settings:", error);
@@ -104,7 +128,10 @@ const AdminSettings: React.FC = () => {
 
   const handleSave = async () => {
     try {
-      await api.updateSettings(settings);
+      await Promise.all([
+        api.updateSettings(settings),
+        api.updatePwaSettings(pwaSettings)
+      ]);
       setSaved(true);
       toast.success(t('admin.settings_saved'));
       setTimeout(() => setSaved(false), 3000);
@@ -408,6 +435,79 @@ const AdminSettings: React.FC = () => {
                   value={settings.socialLinks.tiktok}
                   onChange={e => setSettings({ ...settings, socialLinks: { ...settings.socialLinks, tiktok: e.target.value } })}
                 />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* PWA Settings */}
+        <div className={`bg-white p-8 rounded-3xl shadow-sm border border-gray-100 space-y-6 ${isRTL ? 'text-right' : 'text-left'}`}>
+          <h3 className={`text-xl font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+            <AppWindow className="text-orange-600" />
+            إعدادات تطبيق PWA
+          </h3>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">اسم التطبيق الكامل</label>
+              <input
+                type="text"
+                className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                value={pwaSettings.name}
+                onChange={e => setPwaSettings({ ...pwaSettings, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">الاسم المختصر (يظهر تحت الأيقونة)</label>
+              <input
+                type="text"
+                className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                value={pwaSettings.shortName}
+                onChange={e => setPwaSettings({ ...pwaSettings, shortName: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">وصف التطبيق</label>
+              <textarea
+                className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[80px] ${isRTL ? 'text-right' : 'text-left'}`}
+                value={pwaSettings.description}
+                onChange={e => setPwaSettings({ ...pwaSettings, description: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">لون السمة (Theme)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    className="w-10 h-10 rounded-lg cursor-pointer"
+                    value={pwaSettings.themeColor}
+                    onChange={e => setPwaSettings({ ...pwaSettings, themeColor: e.target.value })}
+                  />
+                  <input
+                    type="text"
+                    className="flex-1 p-2 rounded-lg border border-gray-200 outline-none text-sm"
+                    value={pwaSettings.themeColor}
+                    onChange={e => setPwaSettings({ ...pwaSettings, themeColor: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">لون الخلفية</label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    className="w-10 h-10 rounded-lg cursor-pointer"
+                    value={pwaSettings.backgroundColor}
+                    onChange={e => setPwaSettings({ ...pwaSettings, backgroundColor: e.target.value })}
+                  />
+                  <input
+                    type="text"
+                    className="flex-1 p-2 rounded-lg border border-gray-200 outline-none text-sm"
+                    value={pwaSettings.backgroundColor}
+                    onChange={e => setPwaSettings({ ...pwaSettings, backgroundColor: e.target.value })}
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -10,6 +10,8 @@ export interface CartItem {
 
 interface CartContextType {
   items: CartItem[];
+  branchId: number | null;
+  setBranchId: (id: number | null) => void;
   addItem: (item: CartItem) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
@@ -25,9 +27,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [branchId, setBranchId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('selectedBranchId');
+    return saved ? Number(saved) : null;
+  });
+
   useEffect(() => {
     localStorage.setItem('cart', JSON.stringify(items));
   }, [items]);
+
+  useEffect(() => {
+    if (branchId) {
+      localStorage.setItem('selectedBranchId', branchId.toString());
+    } else {
+      localStorage.removeItem('selectedBranchId');
+    }
+  }, [branchId]);
 
   const addItem = (newItem: CartItem) => {
     setItems(prev => {
@@ -56,7 +71,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ items, addItem, removeItem, updateQuantity, clearCart, total }}>
+    <CartContext.Provider value={{ items, branchId, setBranchId, addItem, removeItem, updateQuantity, clearCart, total }}>
       {children}
     </CartContext.Provider>
   );

@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle } from 'lucide-react';
+import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle, UtensilsCrossed, Building2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -18,6 +18,7 @@ interface Product {
   id: number;
   name: string;
   description: string;
+  ingredients?: string;
   price: number;
   imageUrl: string;
   categoryId: string;
@@ -32,32 +33,56 @@ interface Offer {
   isActive: boolean;
 }
 
+interface Branch {
+  id: number;
+  name: string;
+  address: string;
+  phone: string;
+  whatsappNumber?: string;
+  deliveryFee?: number;
+}
+
 const MenuPage: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { addItem, items, updateQuantity } = useCart();
+  const { addItem, items, updateQuantity, branchId, setBranchId } = useCart();
   const { t, isRTL } = useLanguage();
+
+  const activeBranch = React.useMemo(() => {
+    return branches.find(b => b.id === branchId);
+  }, [branches, branchId]);
+
+  const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [cats, prods, offs, sets] = await Promise.all([
-          api.getCategories(),
-          api.getProducts(),
-          api.getOffers(),
-          api.getSettings()
+        const [cats, prods, offs, sets, brs] = await Promise.all([
+          api.getCategories().catch(e => { console.error(e); return []; }),
+          api.getProducts(branchId || undefined).catch(e => { console.error(e); return []; }),
+          api.getOffers().catch(e => { console.error(e); return []; }),
+          api.getSettings().catch(e => { console.error(e); return null; }),
+          api.getBranches().catch(e => { console.error(e); return []; })
         ]);
-        setCategories(cats);
-        setProducts(prods);
-        setOffers(offs.filter((o: Offer) => o.isActive));
+        setCategories(Array.isArray(cats) ? cats : []);
+        setProducts(Array.isArray(prods) ? prods : []);
+        setOffers((Array.isArray(offs) ? offs : []).filter((o: Offer) => o.isActive));
         setSettings(sets);
+        setBranches(Array.isArray(brs) ? brs : []);
+        
+        // Auto-select first branch if none selected
+        if (Array.isArray(brs) && brs.length > 0 && !branchId) {
+          setBranchId(brs[0].id);
+        }
+        
         setError(null);
       } catch (err: any) {
         console.error("Error fetching menu data:", err);
@@ -71,7 +96,7 @@ const MenuPage: React.FC = () => {
     // Refresh every 30 seconds for real-time feel
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [branchId]);
 
   const filteredProducts = Array.isArray(products) ? products.filter(p => {
     if (!p) return false;
@@ -98,6 +123,24 @@ const MenuPage: React.FC = () => {
           <h1 className="text-4xl font-bold">{settings?.restaurantName || t('hero.title')}</h1>
         </div>
         <p className="text-orange-100">{t('hero.subtitle')}</p>
+        
+        {/* Branch Selection */}
+        {branches.length > 1 && (
+          <div className="max-w-md mx-auto mt-6">
+            <div className="relative inline-block w-full">
+              <Building2 className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-orange-600`} size={20} />
+              <select
+                className={`w-full py-3 ${isRTL ? 'pr-12 pl-6' : 'pl-12 pr-6'} rounded-2xl text-gray-900 bg-white focus:ring-4 focus:ring-orange-500/20 outline-none shadow-lg appearance-none font-bold`}
+                value={branchId || ''}
+                onChange={(e) => setBranchId(Number(e.target.value))}
+              >
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
         
         {/* Search Bar */}
         <div className="max-w-md mx-auto mt-8 relative">
@@ -214,7 +257,7 @@ const MenuPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             <AnimatePresence mode="popLayout">
               {filteredProducts.map(product => {
-                const cartItem = items.find(i => i.id === product.id);
+                const cartItem = (items || []).find(i => i.id === product.id.toString() || i.id === product.id);
                 return (
                   <motion.div
                     layout
@@ -337,29 +380,41 @@ const MenuPage: React.FC = () => {
                     <p className="text-orange-600 font-bold text-xl mt-1">{selectedProduct.price} {t('common.currency')}</p>
                   </div>
                   <div className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-sm font-bold">
-                    {categories.find(c => c.id === selectedProduct.categoryId)?.name}
+                    {(Array.isArray(categories) ? categories : []).find(c => c.id === selectedProduct.categoryId)?.name}
                   </div>
                 </div>
 
-                <p className="text-gray-600 leading-relaxed mb-8">
+                <p className="text-gray-600 leading-relaxed mb-4">
                   {selectedProduct.description}
                 </p>
 
+                {selectedProduct.ingredients && (
+                  <div className="mb-8 bg-orange-50 p-4 rounded-2xl border border-orange-100">
+                    <h4 className="text-sm font-bold text-orange-800 mb-2 flex items-center gap-2">
+                      <UtensilsCrossed size={16} />
+                      {isRTL ? 'المكونات:' : 'Ingredients:'}
+                    </h4>
+                    <p className="text-sm text-orange-700 leading-relaxed">
+                      {selectedProduct.ingredients}
+                    </p>
+                  </div>
+                )}
+
                 {selectedProduct.isAvailable ? (
                   <div className="flex items-center gap-4">
-                    {items.find(i => i.id === selectedProduct.id) ? (
+                    {(items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id) ? (
                       <div className="flex-1 flex items-center justify-between bg-gray-100 rounded-2xl p-2">
                         <button 
-                          onClick={() => updateQuantity(selectedProduct.id, (items.find(i => i.id === selectedProduct.id)?.quantity || 0) - 1)}
+                          onClick={() => updateQuantity(selectedProduct.id.toString(), ((items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id)?.quantity || 0) - 1)}
                           className="w-12 h-12 flex items-center justify-center bg-white rounded-xl shadow-sm hover:bg-orange-50 transition-colors"
                         >
                           <Minus size={20} className="text-orange-600" />
                         </button>
                         <span className="font-bold text-xl text-gray-900">
-                          {items.find(i => i.id === selectedProduct.id)?.quantity}
+                          {(items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id)?.quantity}
                         </span>
                         <button 
-                          onClick={() => updateQuantity(selectedProduct.id, (items.find(i => i.id === selectedProduct.id)?.quantity || 0) + 1)}
+                          onClick={() => updateQuantity(selectedProduct.id.toString(), ((items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id)?.quantity || 0) + 1)}
                           className="w-12 h-12 flex items-center justify-center bg-white rounded-xl shadow-sm hover:bg-orange-50 transition-colors"
                         >
                           <Plus size={20} className="text-orange-600" />
@@ -417,9 +472,9 @@ const MenuPage: React.FC = () => {
       )}
 
       {/* WhatsApp Floating Button */}
-      {settings?.whatsappNumber && (
+      {activeWhatsApp && (
         <a
-          href={`https://wa.me/${settings.whatsappNumber}`}
+          href={`https://wa.me/${activeWhatsApp}`}
           target="_blank"
           rel="noopener noreferrer"
           className="fixed bottom-24 right-6 z-50 bg-green-500 text-white p-4 rounded-full shadow-2xl hover:bg-green-600 transition-all hover:scale-110 active:scale-95"

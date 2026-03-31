@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { Trash2, CheckCircle, Clock, XCircle, Phone, MapPin, Calendar, ClipboardList, Search, Eye, X, Printer, Copy } from 'lucide-react';
+import { Trash2, CheckCircle, Clock, XCircle, Phone, MapPin, Calendar, ClipboardList, Search, Eye, X, Printer, Copy, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+
+import { useAuth } from '../../contexts/AuthContext';
 
 const NEW_ORDER_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
 
@@ -18,21 +20,31 @@ interface Order {
   type: 'delivery' | 'pickup';
   paymentMethod: string;
   screenshot?: string | null;
-  status: 'pending' | 'completed' | 'cancelled';
+  status: 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled';
+  branchId?: number;
   createdAt: string;
+}
+
+interface Branch {
+  id: number;
+  name: string;
 }
 
 const AdminOrders: React.FC = () => {
   const { t, isRTL, language } = useLanguage();
+  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'completed' | 'cancelled'>('all');
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled'>('all');
+  const [selectedBranchId, setSelectedBranchId] = useState<number | 'all'>(user?.role === 'admin' ? 'all' : (user?.branchId || 'all'));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [prevOrderCount, setPrevOrderCount] = useState(0);
 
   const fetchOrders = async () => {
     try {
-      const newOrders = await api.getOrders();
+      const data = await api.getOrders(selectedBranchId === 'all' ? undefined : selectedBranchId);
+      const newOrders = Array.isArray(data) ? data : [];
       
       // Play sound and show toast if new order arrives
       if (prevOrderCount > 0 && newOrders.length > prevOrderCount) {
@@ -47,20 +59,33 @@ const AdminOrders: React.FC = () => {
       setPrevOrderCount(newOrders.length);
     } catch (error) {
       console.error("Error fetching orders:", error);
+      setOrders([]);
+    }
+  };
+
+  const fetchBranches = async () => {
+    try {
+      const data = await api.getBranches();
+      setBranches(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Error fetching branches:", error);
     }
   };
 
   useEffect(() => {
     fetchOrders();
+    fetchBranches();
     const interval = setInterval(fetchOrders, 10000);
     return () => clearInterval(interval);
-  }, [prevOrderCount]);
+  }, [prevOrderCount, selectedBranchId]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
       await api.updateOrderStatus(id, status);
       const statusLabel = status === 'completed' ? t('admin.status_completed') : 
                           status === 'cancelled' ? t('admin.status_cancelled') : 
+                          status === 'in-progress' ? (isRTL ? 'جاري التحضير' : 'In Progress') :
+                          status === 'ready' ? (isRTL ? 'جاهز' : 'Ready') :
                           t('admin.status_pending');
       toast.success(`${t('admin.orders_updated_success')}: ${statusLabel}`);
       fetchOrders();
@@ -155,6 +180,20 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
         <h2 className="text-2xl font-bold text-gray-900">{t('admin.orders_title')}</h2>
         <div className="flex flex-wrap gap-2">
           <div className="relative">
+            <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+            <select
+              className={`${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              disabled={user?.role !== 'admin'}
+            >
+              {user?.role === 'admin' && <option value="all">{isRTL ? 'جميع الفروع' : 'All Branches'}</option>}
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="relative">
             <Search className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
             <input
               type="text"
@@ -168,6 +207,8 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
             {[
               { id: 'all', label: t('admin.orders_filter_all') },
               { id: 'pending', label: t('admin.orders_filter_pending') },
+              { id: 'in-progress', label: isRTL ? 'جاري التحضير' : 'In Progress' },
+              { id: 'ready', label: isRTL ? 'جاهز' : 'Ready' },
               { id: 'completed', label: t('admin.orders_filter_completed') },
               { id: 'cancelled', label: t('admin.orders_filter_cancelled') },
             ].map(f => (
@@ -197,16 +238,21 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                 <div className="flex items-center gap-4">
                   <div className={`p-3 rounded-2xl ${
                     order.status === 'pending' ? 'bg-orange-50 text-orange-600' :
+                    order.status === 'in-progress' ? 'bg-blue-50 text-blue-600' :
+                    order.status === 'ready' ? 'bg-indigo-50 text-indigo-600' :
                     order.status === 'completed' ? 'bg-green-50 text-green-600' :
                     'bg-red-50 text-red-600'
                   }`}>
                     {order.status === 'pending' ? <Clock size={24} /> :
+                     order.status === 'in-progress' ? <Clock size={24} className="animate-pulse" /> :
+                     order.status === 'ready' ? <CheckCircle size={24} /> :
                      order.status === 'completed' ? <CheckCircle size={24} /> :
                      <XCircle size={24} />}
                   </div>
                   <div className={isRTL ? 'text-right' : 'text-left'}>
                     <h3 className="font-bold text-gray-900">{order.customerName}</h3>
                     <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                      <span className="flex items-center gap-1"><Building2 size={12} /> {branches.find(b => b.id === order.branchId)?.name || (isRTL ? 'غير محدد' : 'N/A')}</span>
                       <span className="flex items-center gap-1"><Phone size={12} /> {order.customerPhone}</span>
                       <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(order.createdAt).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
                     </div>
@@ -359,6 +405,18 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'completed' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
                       >
                         {t('admin.status_completed')}
+                      </button>
+                      <button
+                        onClick={() => { updateStatus(selectedOrder.id, 'ready'); setSelectedOrder({...selectedOrder, status: 'ready'}); }}
+                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'ready' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                      >
+                        {isRTL ? 'جاهز' : 'Ready'}
+                      </button>
+                      <button
+                        onClick={() => { updateStatus(selectedOrder.id, 'in-progress'); setSelectedOrder({...selectedOrder, status: 'in-progress'}); }}
+                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'in-progress' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                      >
+                        {isRTL ? 'تحضير' : 'Prep'}
                       </button>
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'pending'); setSelectedOrder({...selectedOrder, status: 'pending'}); }}

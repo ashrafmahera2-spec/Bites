@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import Navbar from '../components/Navbar';
-import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X } from 'lucide-react';
+import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X, Building2 } from 'lucide-react';
 import { api } from '../services/api';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -25,10 +25,20 @@ interface Settings {
   };
 }
 
+interface Branch {
+  id: number;
+  name: string;
+  address: string;
+  phone: string;
+  whatsappNumber?: string;
+  deliveryFee?: number;
+}
+
 const CartPage: React.FC = () => {
-  const { items, updateQuantity, removeItem, total, clearCart } = useCart();
+  const { items, updateQuantity, removeItem, total, clearCart, branchId, setBranchId } = useCart();
   const { t, isRTL, language } = useLanguage();
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'instapay' | 'card' | 'wallet'>('cash');
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
@@ -43,19 +53,38 @@ const CartPage: React.FC = () => {
     notes: ''
   });
 
+  const activeBranch = React.useMemo(() => {
+    return branches.find(b => b.id === branchId);
+  }, [branches, branchId]);
+
+  const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
+  const activeDeliveryFee = orderType === 'delivery' 
+    ? (activeBranch?.deliveryFee !== undefined && activeBranch?.deliveryFee !== null ? activeBranch.deliveryFee : (settings?.deliveryFee || 0))
+    : 0;
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const data = await api.getSettings();
-        if (data) {
-          // Provide defaults for nested objects
+        const [settingsData, branchesData] = await Promise.all([
+          api.getSettings(),
+          api.getBranches()
+        ]);
+        
+        if (settingsData) {
           setSettings({
-            ...data,
-            paymentMethods: data.paymentMethods || { cash: true, instapay: false, card: false, wallet: false }
+            ...settingsData,
+            paymentMethods: settingsData.paymentMethods || { cash: true, instapay: false, card: false, wallet: false }
           });
         }
+        
+        if (Array.isArray(branchesData)) {
+          setBranches(branchesData);
+          if (branchesData.length > 0 && !branchId) {
+            setBranchId(branchesData[0].id);
+          }
+        }
       } catch (error) {
-        console.error("Error fetching settings:", error);
+        console.error("Error fetching settings/branches:", error);
       }
     };
     fetchSettings();
@@ -121,7 +150,7 @@ const CartPage: React.FC = () => {
 
     // Totals
     const finalY = (doc as any).lastAutoTable.finalY + 10;
-    const deliveryFee = orderType === 'delivery' ? (settings?.deliveryFee || 0) : 0;
+    const deliveryFee = activeDeliveryFee;
     
     doc.setFontSize(11);
     doc.text(`${t('cart.subtotal')}: ${total} ${t('common.currency')}`, 190, finalY, { align: 'right' });
@@ -174,10 +203,10 @@ const CartPage: React.FC = () => {
       return;
     }
     
-    if (!settings?.whatsappNumber) return;
+    if (!activeWhatsApp) return;
     
     setIsSubmitting(true);
-    const deliveryFee = orderType === 'delivery' ? (settings.deliveryFee || 0) : 0;
+    const deliveryFee = activeDeliveryFee;
     const finalTotal = total + deliveryFee;
     
     // Save to MySQL via API
@@ -191,12 +220,21 @@ const CartPage: React.FC = () => {
         total: finalTotal,
         paymentMethod,
         screenshot: screenshot || null,
-        status: 'pending'
+        status: 'pending',
+        branchId: branchId || undefined
       });
       
       let message = isRTL ? `*طلب جديد من Bite's*\n\n` : `*New Order from Bite's*\n\n`;
       message += isRTL ? `*الاسم:* ${customerInfo.name}\n` : `*Name:* ${customerInfo.name}\n`;
       message += isRTL ? `*الموبايل:* ${customerInfo.phone}\n` : `*Phone:* ${customerInfo.phone}\n`;
+      
+      if (branchId) {
+        const branch = branches.find(b => b.id === branchId);
+        if (branch) {
+          message += isRTL ? `*الفرع:* ${branch.name}\n` : `*Branch:* ${branch.name}\n`;
+        }
+      }
+
       message += isRTL ? `*النوع:* ${orderType === 'delivery' ? 'توصيل 🚚' : 'استلام من المكان 🏪'}\n` : `*Type:* ${orderType === 'delivery' ? 'Delivery 🚚' : 'Pickup 🏪'}\n`;
       if (orderType === 'delivery') message += isRTL ? `*العنوان:* ${customerInfo.address}\n` : `*Address:* ${customerInfo.address}\n`;
       message += isRTL ? `*طريقة الدفع:* ${
@@ -226,7 +264,7 @@ const CartPage: React.FC = () => {
       if (customerInfo.notes) message += isRTL ? `\n\n*ملاحظات:* ${customerInfo.notes}` : `\n\n*Notes:* ${customerInfo.notes}`;
       
       const encodedMessage = encodeURIComponent(message);
-      window.open(`https://wa.me/${settings.whatsappNumber}?text=${encodedMessage}`, '_blank');
+      window.open(`https://wa.me/${activeWhatsApp}?text=${encodedMessage}`, '_blank');
       
       setIsSuccessModalOpen(true);
       clearCart();
@@ -328,6 +366,25 @@ const CartPage: React.FC = () => {
             <h3 className="text-xl font-bold text-gray-900 mb-6">{t('cart.order_details')}</h3>
             
             <div className="space-y-4">
+              {/* Branch Selection */}
+              {branches.length > 1 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-gray-700">{isRTL ? 'اختر الفرع' : 'Select Branch'}</p>
+                  <div className="relative">
+                    <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
+                    <select
+                      className={`w-full p-3 ${isRTL ? 'pr-10' : 'pl-10'} rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white font-medium`}
+                      value={branchId || ''}
+                      onChange={(e) => setBranchId(Number(e.target.value))}
+                    >
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               {/* Order Type */}
               <div className="grid grid-cols-2 gap-3">
                 <button
@@ -527,12 +584,12 @@ const CartPage: React.FC = () => {
                 {orderType === 'delivery' && (
                   <div className="flex justify-between text-gray-600">
                     <span>{t('cart.delivery_fee')}</span>
-                    <span>{settings?.deliveryFee || 0} {t('common.currency')}</span>
+                    <span>{activeDeliveryFee} {t('common.currency')}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-xl font-bold text-gray-900 pt-2">
                   <span>{t('cart.total')}</span>
-                  <span>{total + (orderType === 'delivery' ? (settings?.deliveryFee || 0) : 0)} {t('common.currency')}</span>
+                  <span>{total + activeDeliveryFee} {t('common.currency')}</span>
                 </div>
               </div>
 

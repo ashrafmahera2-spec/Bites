@@ -4,7 +4,7 @@ interface AuthContextType {
   user: any | null;
   isAdmin: boolean;
   loading: boolean;
-  login: (password: string) => Promise<boolean>;
+  login: (username: string, password?: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -17,26 +17,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const token = localStorage.getItem('admin-token');
-    if (token) {
-      setIsAdmin(true);
-      setUser({ role: 'admin' });
+    const userData = localStorage.getItem('admin-user');
+    if (token && userData) {
+      const parsedUser = JSON.parse(userData);
+      setUser(parsedUser);
+      setIsAdmin(parsedUser.role === 'admin' || parsedUser.role === 'cashier' || parsedUser.role === 'staff' || parsedUser.role === 'kitchen');
     }
     setLoading(false);
   }, []);
 
-  const login = async (password: string) => {
+  const login = async (username: string, password?: string) => {
     try {
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ username, password })
       });
       
       if (response.ok) {
         const data = await response.json();
         localStorage.setItem('admin-token', data.token);
+        localStorage.setItem('admin-user', JSON.stringify(data.user));
+        setUser(data.user);
         setIsAdmin(true);
-        setUser({ role: 'admin' });
         return true;
       }
       return false;
@@ -48,6 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     localStorage.removeItem('admin-token');
+    localStorage.removeItem('admin-user');
     setIsAdmin(false);
     setUser(null);
   };

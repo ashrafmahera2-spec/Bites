@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle, UserPlus, Calculator, UtensilsCrossed, Building2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { api } from '../../services/api';
@@ -17,7 +17,7 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => {
     const fetchPending = async () => {
       try {
-        const orders = await api.getOrders();
+        const orders = await api.getOrders(user?.role === 'admin' ? undefined : user?.branchId);
         const safeOrders = Array.isArray(orders) ? orders : [];
         setPendingCount(safeOrders.filter((o: any) => o && o.status === 'pending').length);
       } catch (error) {
@@ -27,8 +27,9 @@ const AdminDashboard: React.FC = () => {
 
     const fetchErrors = async () => {
       try {
-        const errors = await api.getErrors();
-        if (errors && errors.length > 0) {
+        const data = await api.getErrors();
+        const errors = Array.isArray(data) ? data : [];
+        if (errors.length > 0) {
           const latestError = errors[0];
           if (lastErrorId === null) {
             setLastErrorId(latestError.id);
@@ -61,15 +62,21 @@ const AdminDashboard: React.FC = () => {
   }, [location.pathname]);
 
   const menuItems = [
-    { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview') },
-    { path: '/admin/orders', icon: ClipboardList, label: t('admin.nav_orders') },
-    { path: '/admin/products', icon: Package, label: t('admin.nav_products') },
-    { path: '/admin/categories', icon: List, label: t('admin.nav_categories') },
-    { path: '/admin/offers', icon: Tag, label: t('admin.nav_offers') },
-    { path: '/admin/errors', icon: AlertTriangle, label: t('admin.nav_errors') },
-    { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings') },
-    { path: '/admin/database', icon: Database, label: t('admin.nav_database') },
+    { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview'), roles: ['admin', 'staff', 'cashier', 'kitchen'] },
+    { path: '/admin/kitchen', icon: UtensilsCrossed, label: 'المطبخ', roles: ['admin', 'kitchen'] },
+    { path: '/admin/branches', icon: Building2, label: 'الفروع', roles: ['admin'] },
+    { path: '/admin/cashier', icon: Calculator, label: t('admin.nav_cashier'), roles: ['admin', 'cashier'] },
+    { path: '/admin/orders', icon: ClipboardList, label: t('admin.nav_orders'), roles: ['admin', 'staff', 'cashier'] },
+    { path: '/admin/products', icon: Package, label: t('admin.nav_products'), roles: ['admin', 'staff'] },
+    { path: '/admin/categories', icon: List, label: t('admin.nav_categories'), roles: ['admin', 'staff'] },
+    { path: '/admin/offers', icon: Tag, label: t('admin.nav_offers'), roles: ['admin', 'staff'] },
+    { path: '/admin/staff', icon: UserPlus, label: t('admin.nav_staff'), roles: ['admin'] },
+    { path: '/admin/errors', icon: AlertTriangle, label: t('admin.nav_errors'), roles: ['admin'] },
+    { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings'), roles: ['admin'] },
+    { path: '/admin/database', icon: Database, label: t('admin.nav_database'), roles: ['admin'] },
   ];
+
+  const filteredMenuItems = menuItems.filter(item => item.roles.includes(user?.role || ''));
 
   return (
     <div className={`min-h-screen bg-gray-50 flex flex-col lg:flex-row ${isRTL ? 'lg:flex-row-reverse' : ''}`}>
@@ -93,7 +100,7 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         <nav className={`px-4 py-2 space-y-1 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
-          {menuItems.map(item => (
+          {filteredMenuItems.map(item => (
             <Link
               key={item.path}
               to={item.path}

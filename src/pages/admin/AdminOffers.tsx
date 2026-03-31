@@ -44,9 +44,10 @@ const AdminOffers: React.FC = () => {
   const fetchData = async () => {
     try {
       const data = await api.getOffers();
-      setOffers(data);
+      setOffers(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error fetching offers:", error);
+      setOffers([]);
     } finally {
       setLoading(false);
     }
