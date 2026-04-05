@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { Trash2, CheckCircle, Clock, XCircle, Phone, MapPin, Calendar, ClipboardList, Search, Eye, X, Printer, Copy, Building2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+import ConfirmModal from '../../components/ConfirmModal';
 
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -22,6 +23,11 @@ interface Order {
   screenshot?: string | null;
   status: 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled';
   branchId?: number;
+  couponCode?: string;
+  pointsUsed?: number;
+  pointsValue?: number;
+  subtotal?: number;
+  discount?: number;
   createdAt: string;
 }
 
@@ -29,6 +35,8 @@ interface Branch {
   id: number;
   name: string;
 }
+
+import { printOrder } from '../../lib/printUtils';
 
 const AdminOrders: React.FC = () => {
   const { t, isRTL, language } = useLanguage();
@@ -40,6 +48,8 @@ const AdminOrders: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [prevOrderCount, setPrevOrderCount] = useState(0);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
 
   const fetchOrders = async () => {
     try {
@@ -72,9 +82,21 @@ const AdminOrders: React.FC = () => {
     }
   };
 
+  const [settings, setSettings] = useState<any>(null);
+
+  const fetchSettings = async () => {
+    try {
+      const data = await api.getSettings();
+      setSettings(data);
+    } catch (error) {
+      console.error("Error fetching settings:", error);
+    }
+  };
+
   useEffect(() => {
     fetchOrders();
     fetchBranches();
+    fetchSettings();
     const interval = setInterval(fetchOrders, 10000);
     return () => clearInterval(interval);
   }, [prevOrderCount, selectedBranchId]);
@@ -84,8 +106,8 @@ const AdminOrders: React.FC = () => {
       await api.updateOrderStatus(id, status);
       const statusLabel = status === 'completed' ? t('admin.status_completed') : 
                           status === 'cancelled' ? t('admin.status_cancelled') : 
-                          status === 'in-progress' ? (isRTL ? 'جاري التحضير' : 'In Progress') :
-                          status === 'ready' ? (isRTL ? 'جاهز' : 'Ready') :
+                          status === 'in-progress' ? t('admin.status_prep') :
+                          status === 'ready' ? t('admin.status_ready') :
                           t('admin.status_pending');
       toast.success(`${t('admin.orders_updated_success')}: ${statusLabel}`);
       fetchOrders();
@@ -95,16 +117,17 @@ const AdminOrders: React.FC = () => {
     }
   };
 
-  const deleteOrder = async (id: string) => {
-    if (window.confirm(t('admin.orders_confirm_delete'))) {
-      try {
-        await api.deleteOrder(id);
-        toast.success(t('admin.orders_deleted_success'));
-        fetchOrders();
-      } catch (error) {
-        console.error("Error deleting order:", error);
-        toast.error(t('admin.orders_delete_failed'));
-      }
+  const deleteOrder = async () => {
+    if (!orderToDelete) return;
+    try {
+      await api.deleteOrder(orderToDelete);
+      toast.success(t('admin.orders_deleted_success'));
+      fetchOrders();
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      toast.error(t('admin.orders_delete_failed'));
+    } finally {
+      setOrderToDelete(null);
     }
   };
 
@@ -128,39 +151,7 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
   };
 
   const printInvoice = (order: Order) => {
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: [80, 200] // Receipt size
-    });
-
-    // Note: jsPDF has limited Arabic support without custom fonts. 
-    // For now we'll keep it as is, but in a real app we'd load an Arabic font.
-    doc.setFontSize(16);
-    doc.text(t('admin.orders_invoice_title'), 40, 10, { align: 'center' });
-    doc.setFontSize(10);
-    doc.text(`${t('admin.orders_order_id')}: #${order.id}`, 10, 20);
-    doc.text(`${t('admin.orders_date')}: ${new Date(order.createdAt).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}`, 10, 25);
-    doc.text('--------------------------------', 10, 30);
-    
-    doc.text(`${t('admin.orders_customer')}: ${order.customerName}`, 10, 35);
-    doc.text(`${t('admin.orders_phone')}: ${order.customerPhone}`, 10, 40);
-    doc.text(`${t('admin.orders_address')}: ${order.address}`, 10, 45);
-    doc.text('--------------------------------', 10, 50);
-
-    let y = 55;
-    order.items.forEach(item => {
-      doc.text(`${item.name} x${item.quantity}`, 10, y);
-      doc.text(`${item.price * item.quantity} ${t('common.currency')}`, 70, y, { align: 'right' });
-      y += 5;
-    });
-
-    doc.text('--------------------------------', 10, y);
-    y += 5;
-    doc.setFontSize(12);
-    doc.text(`${t('admin.orders_total')}: ${order.total} ${t('common.currency')}`, 70, y, { align: 'right' });
-    
-    doc.save(`invoice-${order.id}.pdf`);
+    printOrder(order, settings, t, isRTL);
   };
 
   const safeOrders = Array.isArray(orders) ? orders : [];
@@ -176,46 +167,56 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
 
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <ConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => { setIsConfirmOpen(false); setOrderToDelete(null); }}
+        onConfirm={deleteOrder}
+        title={t('common.delete')}
+        message={t('admin.orders_confirm_delete')}
+        type="danger"
+      />
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-900">{t('admin.orders_title')}</h2>
-        <div className="flex flex-wrap gap-2">
-          <div className="relative">
-            <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
-            <select
-              className={`${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              disabled={user?.role !== 'admin'}
-            >
-              {user?.role === 'admin' && <option value="all">{isRTL ? 'جميع الفروع' : 'All Branches'}</option>}
-              {branches.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+          <div className="flex flex-col sm:flex-row gap-2 flex-1 lg:flex-none">
+            <div className="relative flex-1 sm:w-48">
+              <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+              <select
+                className={`w-full ${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
+                value={selectedBranchId}
+                onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                disabled={user?.role !== 'admin'}
+              >
+                {user?.role === 'admin' && <option value="all">{t('admin.branches_all')}</option>}
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="relative flex-1 sm:w-64">
+              <Search className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+              <input
+                type="text"
+                placeholder={t('admin.orders_search_placeholder')}
+                className={`w-full ${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="relative">
-            <Search className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
-            <input
-              type="text"
-              placeholder={t('admin.orders_search_placeholder')}
-              className={`${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm">
+          <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto no-scrollbar scroll-smooth">
             {[
               { id: 'all', label: t('admin.orders_filter_all') },
               { id: 'pending', label: t('admin.orders_filter_pending') },
-              { id: 'in-progress', label: isRTL ? 'جاري التحضير' : 'In Progress' },
-              { id: 'ready', label: isRTL ? 'جاهز' : 'Ready' },
+              { id: 'in-progress', label: t('admin.status_prep') },
+              { id: 'ready', label: t('admin.status_ready') },
               { id: 'completed', label: t('admin.orders_filter_completed') },
               { id: 'cancelled', label: t('admin.orders_filter_cancelled') },
             ].map(f => (
               <button
                 key={f.id}
                 onClick={() => setFilter(f.id as any)}
-                className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
                   filter === f.id ? 'bg-orange-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'
                 }`}
               >
@@ -234,9 +235,9 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
               key={order.id}
               className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden"
             >
-              <div className="p-6 border-b border-gray-50 flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 sm:p-6 border-b border-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-2xl ${
+                  <div className={`p-3 rounded-2xl shrink-0 ${
                     order.status === 'pending' ? 'bg-orange-50 text-orange-600' :
                     order.status === 'in-progress' ? 'bg-blue-50 text-blue-600' :
                     order.status === 'ready' ? 'bg-indigo-50 text-indigo-600' :
@@ -250,56 +251,60 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                      <XCircle size={24} />}
                   </div>
                   <div className={isRTL ? 'text-right' : 'text-left'}>
-                    <h3 className="font-bold text-gray-900">{order.customerName}</h3>
-                    <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                      <span className="flex items-center gap-1"><Building2 size={12} /> {branches.find(b => b.id === order.branchId)?.name || (isRTL ? 'غير محدد' : 'N/A')}</span>
+                    <h3 className="font-bold text-gray-900 line-clamp-1">{order.customerName}</h3>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
+                      <span className="flex items-center gap-1"><Building2 size={12} /> {branches.find(b => b.id === order.branchId)?.name || t('common.unspecified')}</span>
                       <span className="flex items-center gap-1"><Phone size={12} /> {order.customerPhone}</span>
                       <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(order.createdAt).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
                     </div>
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateStatus(order.id, 'completed')}
-                    className="px-4 py-2 bg-green-50 text-green-600 rounded-xl text-sm font-bold hover:bg-green-100 transition-all"
-                  >
-                    {t('admin.orders_mark_completed')}
-                  </button>
-                  <button
-                    onClick={() => updateStatus(order.id, 'cancelled')}
-                    className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-sm font-bold hover:bg-red-100 transition-all"
-                  >
-                    {t('admin.orders_mark_cancelled')}
-                  </button>
-                  <button
-                    onClick={() => copyOrderDetails(order)}
-                    className="p-2 text-gray-400 hover:text-green-600 transition-colors"
-                    title={t('admin.orders_copy_details')}
-                  >
-                    <Copy size={20} />
-                  </button>
-                  <button
-                    onClick={() => printInvoice(order)}
-                    className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-                    title={t('admin.orders_print_invoice')}
-                  >
-                    <Printer size={20} />
-                  </button>
-                  <button
-                    onClick={() => setSelectedOrder(order)}
-                    className="p-2 text-gray-400 hover:text-orange-600 transition-colors"
-                    title={t('admin.orders_view_details')}
-                  >
-                    <Eye size={20} />
-                  </button>
-                  <button
-                    onClick={() => deleteOrder(order.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                    title={t('admin.orders_delete')}
-                  >
-                    <Trash2 size={20} />
-                  </button>
+                <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-4 sm:pt-0">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => updateStatus(order.id, 'completed')}
+                      className="px-3 py-1.5 bg-green-50 text-green-600 rounded-xl text-xs sm:text-sm font-bold hover:bg-green-100 transition-all"
+                    >
+                      {t('admin.orders_mark_completed')}
+                    </button>
+                    <button
+                      onClick={() => updateStatus(order.id, 'cancelled')}
+                      className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs sm:text-sm font-bold hover:bg-red-100 transition-all"
+                    >
+                      {t('admin.orders_mark_cancelled')}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => copyOrderDetails(order)}
+                      className="p-2 text-gray-400 hover:text-green-600 transition-colors"
+                      title={t('admin.orders_copy_details')}
+                    >
+                      <Copy size={18} />
+                    </button>
+                    <button
+                      onClick={() => printInvoice(order)}
+                      className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                      title={t('admin.orders_print_invoice')}
+                    >
+                      <Printer size={18} />
+                    </button>
+                    <button
+                      onClick={() => setSelectedOrder(order)}
+                      className="p-2 text-gray-400 hover:text-orange-600 transition-colors"
+                      title={t('admin.orders_view_details')}
+                    >
+                      <Eye size={18} />
+                    </button>
+                    <button
+                      onClick={() => { setOrderToDelete(order.id); setIsConfirmOpen(true); }}
+                      className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                      title={t('admin.orders_delete')}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -314,9 +319,23 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                       </li>
                     ))}
                   </ul>
-                  <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
-                    <span className="font-bold text-gray-900">{t('admin.orders_total')}</span>
-                    <span className="text-xl font-bold text-orange-600">{order.total} {t('common.currency')}</span>
+                  <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+                    {order.couponCode && (
+                      <div className="flex justify-between items-center text-sm text-green-600">
+                        <span>{t('admin.coupons_discount')} ({order.couponCode})</span>
+                        <span>-{order.discount || 0} {t('common.currency')}</span>
+                      </div>
+                    )}
+                    {order.pointsUsed && order.pointsUsed > 0 && (
+                      <div className="flex justify-between items-center text-sm text-orange-600">
+                        <span>{t('cart.points_discount')} ({order.pointsUsed} {t('admin.customers_table_points')})</span>
+                        <span>-{order.pointsValue || 0} {t('common.currency')}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-gray-900">{t('admin.orders_total')}</span>
+                      <span className="text-xl font-bold text-orange-600">{order.total} {t('common.currency')}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -399,34 +418,34 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                   
                   <div className="space-y-4">
                     <h4 className={`font-bold text-gray-900 border-b pb-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.orders_status')}</h4>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'completed'); setSelectedOrder({...selectedOrder, status: 'completed'}); }}
-                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'completed' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'completed' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
                       >
                         {t('admin.status_completed')}
                       </button>
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'ready'); setSelectedOrder({...selectedOrder, status: 'ready'}); }}
-                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'ready' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'ready' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
                       >
-                        {isRTL ? 'جاهز' : 'Ready'}
+                        {t('admin.status_ready')}
                       </button>
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'in-progress'); setSelectedOrder({...selectedOrder, status: 'in-progress'}); }}
-                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'in-progress' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'in-progress' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
                       >
-                        {isRTL ? 'تحضير' : 'Prep'}
+                        {t('admin.status_prep')}
                       </button>
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'pending'); setSelectedOrder({...selectedOrder, status: 'pending'}); }}
-                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'pending' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'pending' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
                       >
                         {t('admin.status_pending')}
                       </button>
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'cancelled'); setSelectedOrder({...selectedOrder, status: 'cancelled'}); }}
-                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${selectedOrder.status === 'cancelled' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'cancelled' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
                       >
                         {t('admin.status_cancelled')}
                       </button>
@@ -457,6 +476,18 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         ))}
                       </tbody>
                       <tfoot className="bg-orange-50 font-bold">
+                        {selectedOrder.couponCode && (
+                          <tr className="text-sm text-green-600">
+                            <td colSpan={3} className={`px-4 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.coupons_discount')} ({selectedOrder.couponCode})</td>
+                            <td className={`px-4 py-2 ${isRTL ? 'text-left' : 'text-right'}`}>-{selectedOrder.discount || 0} {t('common.currency')}</td>
+                          </tr>
+                        )}
+                        {selectedOrder.pointsUsed && selectedOrder.pointsUsed > 0 && (
+                          <tr className="text-sm text-orange-600">
+                            <td colSpan={3} className={`px-4 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('cart.points_discount')} ({selectedOrder.pointsUsed} {t('admin.customers_table_points')})</td>
+                            <td className={`px-4 py-2 ${isRTL ? 'text-left' : 'text-right'}`}>-{selectedOrder.pointsValue || 0} {t('common.currency')}</td>
+                          </tr>
+                        )}
                         <tr>
                           <td colSpan={3} className={`px-4 py-3 text-gray-600 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.orders_final_total')}</td>
                           <td className={`px-4 py-3 text-orange-600 text-lg ${isRTL ? 'text-left' : 'text-right'}`}>{selectedOrder.total} {t('common.currency')}</td>

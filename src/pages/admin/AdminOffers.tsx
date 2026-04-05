@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { Plus, Edit2, Trash2, Image as ImageIcon, Check, X, Search, Tag, AlertCircle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+import ConfirmModal from '../../components/ConfirmModal';
 
 interface Offer {
   id: string | number;
@@ -19,6 +20,8 @@ const AdminOffers: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [offerToDelete, setOfferToDelete] = useState<string | number | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -77,16 +80,17 @@ const AdminOffers: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string | number) => {
-    if (window.confirm(t('admin.offers_delete_confirm'))) {
-      try {
-        await api.deleteOffer(id);
-        toast.success(t('admin.offers_deleted'));
-        fetchData();
-      } catch (error) {
-        console.error("Error deleting offer:", error);
-        toast.error(t('common.error'));
-      }
+  const handleDelete = async () => {
+    if (!offerToDelete) return;
+    try {
+      await api.deleteOffer(offerToDelete);
+      toast.success(t('admin.offers_deleted'));
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting offer:", error);
+      toast.error(t('common.error'));
+    } finally {
+      setOfferToDelete(null);
     }
   };
 
@@ -108,6 +112,14 @@ const AdminOffers: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <ConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => { setIsConfirmOpen(false); setOfferToDelete(null); }}
+        onConfirm={handleDelete}
+        title={t('common.delete')}
+        message={t('admin.offers_delete_confirm')}
+        type="danger"
+      />
       <div className={`flex flex-wrap items-center justify-between gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
         <h2 className={`text-2xl font-bold text-gray-900 flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
           <Tag className="text-orange-600" />
@@ -152,7 +164,7 @@ const AdminOffers: React.FC = () => {
                     <Edit2 size={18} />
                   </button>
                   <button
-                    onClick={() => handleDelete(offer.id)}
+                    onClick={() => { setOfferToDelete(offer.id); setIsConfirmOpen(true); }}
                     className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                   >
                     <Trash2 size={18} />

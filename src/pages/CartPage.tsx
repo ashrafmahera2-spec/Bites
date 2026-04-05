@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import Navbar from '../components/Navbar';
-import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X, Building2 } from 'lucide-react';
+import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X, Building2, Printer } from 'lucide-react';
 import { api } from '../services/api';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
 interface Settings {
@@ -23,6 +23,20 @@ interface Settings {
     card: boolean;
     wallet: boolean;
   };
+  global?: {
+    features?: {
+      enableCoupons: boolean;
+      enablePoints: boolean;
+      requireLogin: boolean;
+      orderMethod: 'whatsapp' | 'platform';
+      menuTheme: string;
+    };
+    points?: {
+      earningRate: number;
+      redemptionRate: number;
+      minPointsToRedeem: number;
+    };
+  };
 }
 
 interface Branch {
@@ -34,6 +48,8 @@ interface Branch {
   deliveryFee?: number;
 }
 
+import { printOrder } from '../lib/printUtils';
+
 const CartPage: React.FC = () => {
   const { items, updateQuantity, removeItem, total, clearCart, branchId, setBranchId } = useCart();
   const { t, isRTL, language } = useLanguage();
@@ -44,6 +60,7 @@ const CartPage: React.FC = () => {
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [customerInfo, setCustomerInfo] = useState({
@@ -52,15 +69,35 @@ const CartPage: React.FC = () => {
     address: '',
     notes: ''
   });
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [usePoints, setUsePoints] = useState(false);
+  const [customerData, setCustomerData] = useState<any>(null);
 
   const activeBranch = React.useMemo(() => {
     return branches.find(b => b.id === branchId);
   }, [branches, branchId]);
 
-  const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
   const activeDeliveryFee = orderType === 'delivery' 
     ? (activeBranch?.deliveryFee !== undefined && activeBranch?.deliveryFee !== null ? activeBranch.deliveryFee : (settings?.deliveryFee || 0))
     : 0;
+
+  const subtotal = total;
+  const discount = appliedCoupon 
+    ? (appliedCoupon.type === 'percentage' 
+        ? (subtotal * appliedCoupon.value / 100) 
+        : appliedCoupon.value)
+    : 0;
+  const finalDiscount = appliedCoupon?.maxDiscount ? Math.min(discount, appliedCoupon.maxDiscount) : discount;
+  
+  const pointsDiscount = usePoints && customerData && settings?.global?.points
+    ? Math.min(subtotal - finalDiscount, customerData.points * settings.global.points.redemptionRate)
+    : 0;
+
+  const finalTotal = Math.max(0, subtotal - finalDiscount - pointsDiscount + activeDeliveryFee);
+
+  const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -90,88 +127,17 @@ const CartPage: React.FC = () => {
     fetchSettings();
   }, []);
 
-  const generatePDF = () => {
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
-
-    // Header
-    doc.setFillColor(234, 88, 12); // Orange 600
-    doc.rect(0, 0, 210, 40, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(28);
-    doc.text(settings?.restaurantName || "Bite's Menu", 105, 20, { align: 'center' });
-    doc.setFontSize(12);
-    doc.text(t('cart.order_invoice'), 105, 30, { align: 'center' });
-
-    // Customer Info
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text(t('cart.customer_details'), 20, 55);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.text(`${isRTL ? 'الاسم' : 'Name'}: ${customerInfo.name}`, 20, 65);
-    doc.text(`${isRTL ? 'الموبايل' : 'Phone'}: ${customerInfo.phone}`, 20, 72);
-    doc.text(`${isRTL ? 'نوع الطلب' : 'Order Type'}: ${orderType === 'delivery' ? t('cart.delivery') : t('cart.pickup')}`, 20, 79);
-    if (orderType === 'delivery') {
-      doc.text(`${isRTL ? 'العنوان' : 'Address'}: ${customerInfo.address}`, 20, 86);
-    }
-
-    doc.text(`${t('cart.date')}: ${new Date().toLocaleString(isRTL ? 'ar-EG' : 'en-US')}`, 190, 65, { align: 'right' });
-    doc.text(`${t('cart.order_id')}: #${Math.floor(Math.random() * 1000000)}`, 190, 72, { align: 'right' });
-
-    // Items Table
-    const tableData = items.map(item => [
-      item.name,
-      item.quantity.toString(),
-      `${item.price} ${t('common.currency')}`,
-      `${item.price * item.quantity} ${t('common.currency')}`
-    ]);
-
-    autoTable(doc, {
-      startY: 95,
-      head: [[isRTL ? 'المنتج' : 'Item', isRTL ? 'الكمية' : 'Qty', isRTL ? 'السعر' : 'Price', isRTL ? 'الإجمالي' : 'Total']],
-      body: tableData,
-      theme: 'striped',
-      headStyles: { fillColor: [234, 88, 12], textColor: [255, 255, 255] },
-      styles: { fontSize: 10, cellPadding: 5 },
-      columnStyles: {
-        0: { cellWidth: 'auto' },
-        1: { halign: 'center' },
-        2: { halign: 'right' },
-        3: { halign: 'right' }
-      }
-    });
-
-    // Totals
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    const deliveryFee = activeDeliveryFee;
-    
-    doc.setFontSize(11);
-    doc.text(`${t('cart.subtotal')}: ${total} ${t('common.currency')}`, 190, finalY, { align: 'right' });
-    doc.text(`${t('cart.delivery_fee')}: ${deliveryFee} ${t('common.currency')}`, 190, finalY + 7, { align: 'right' });
-    
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(234, 88, 12);
-    doc.text(`${t('cart.total')}: ${total + deliveryFee} ${t('common.currency')}`, 190, finalY + 17, { align: 'right' });
-
-    // Footer
-    const pageHeight = doc.internal.pageSize.height;
-    doc.setFontSize(10);
-    doc.setTextColor(150, 150, 150);
-    doc.setFont("helvetica", "normal");
-    doc.text(t('cart.thank_you'), 105, pageHeight - 20, { align: 'center' });
-    
-    doc.setFontSize(8);
-    doc.text(`${t('common.developed_by')} mamlinc`, 105, pageHeight - 10, { align: 'center' });
-
-    doc.save(`invoice-${Date.now()}.pdf`);
+  const printInvoice = (orderId: number) => {
+    const order = {
+      id: orderId,
+      customerName: customerInfo.name,
+      customerPhone: customerInfo.phone,
+      address: orderType === 'delivery' ? customerInfo.address : t('cart.pickup_restaurant'),
+      items: items,
+      total: total + activeDeliveryFee,
+      createdAt: new Date().toISOString()
+    };
+    printOrder(order, settings, t, isRTL);
   };
 
   const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,6 +148,27 @@ const CartPage: React.FC = () => {
         setScreenshot(reader.result as string);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCustomerLookup = async () => {
+    if (!customerInfo.phone) return;
+    setIsLoggingIn(true);
+    try {
+      // For simplicity, we'll just fetch customer by phone
+      const customers = await api.getCustomers();
+      const customer = customers.find((c: any) => c.phone === customerInfo.phone);
+      if (customer) {
+        setCustomerData(customer);
+        setCustomerInfo(prev => ({ ...prev, name: customer.name }));
+        toast.success(t('nav.login_success'));
+      } else {
+        toast.error(t('search.no_results'));
+      }
+    } catch (error) {
+      console.error("Error looking up customer:", error);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -197,80 +184,93 @@ const CartPage: React.FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const sendToWhatsApp = async () => {
+  const handleApplyCoupon = async () => {
+    if (!couponCode) return;
+    setIsValidatingCoupon(true);
+    try {
+      const coupon = await api.validateCoupon(couponCode);
+      if (subtotal < coupon.minOrder) {
+        toast.error(`${t('admin.coupons_error_min_order')} ${coupon.minOrder}`);
+        return;
+      }
+      setAppliedCoupon(coupon);
+      toast.success(t('admin.coupons_applied_success'));
+    } catch (error: any) {
+      toast.error(error.message || t('admin.coupons_invalid'));
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+
+  const handleOrder = async () => {
     if (!validateForm()) {
       toast.error(t('cart.validation_error'));
       return;
     }
-    
-    if (!activeWhatsApp) return;
+
+    const isWhatsApp = settings?.global?.features?.orderMethod === 'whatsapp';
     
     setIsSubmitting(true);
-    const deliveryFee = activeDeliveryFee;
-    const finalTotal = total + deliveryFee;
-    
-    // Save to MySQL via API
     try {
-      await api.createOrder({
+      const orderData = {
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone,
         address: orderType === 'delivery' ? customerInfo.address : t('cart.pickup_location'),
         type: orderType,
         items: items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
+        subtotal,
+        discount: finalDiscount,
+        pointsDiscount,
+        couponCode: appliedCoupon?.code,
         total: finalTotal,
         paymentMethod,
         screenshot: screenshot || null,
         status: 'pending',
         branchId: branchId || undefined
-      });
-      
-      let message = isRTL ? `*طلب جديد من Bite's*\n\n` : `*New Order from Bite's*\n\n`;
-      message += isRTL ? `*الاسم:* ${customerInfo.name}\n` : `*Name:* ${customerInfo.name}\n`;
-      message += isRTL ? `*الموبايل:* ${customerInfo.phone}\n` : `*Phone:* ${customerInfo.phone}\n`;
-      
-      if (branchId) {
-        const branch = branches.find(b => b.id === branchId);
-        if (branch) {
-          message += isRTL ? `*الفرع:* ${branch.name}\n` : `*Branch:* ${branch.name}\n`;
+      };
+
+      const response = await api.createOrder(orderData);
+
+      if (isWhatsApp && activeWhatsApp) {
+        let message = `*${t('cart.whatsapp_order_title')}*\n\n`;
+        message += `*${t('cart.name')}:* ${customerInfo.name}\n`;
+        message += `*${t('cart.phone')}:* ${customerInfo.phone}\n`;
+        
+        if (branchId) {
+          const branch = branches.find(b => b.id === branchId);
+          if (branch) message += `*${t('cart.branch_label')}:* ${branch.name}\n`;
         }
-      }
 
-      message += isRTL ? `*النوع:* ${orderType === 'delivery' ? 'توصيل 🚚' : 'استلام من المكان 🏪'}\n` : `*Type:* ${orderType === 'delivery' ? 'Delivery 🚚' : 'Pickup 🏪'}\n`;
-      if (orderType === 'delivery') message += isRTL ? `*العنوان:* ${customerInfo.address}\n` : `*Address:* ${customerInfo.address}\n`;
-      message += isRTL ? `*طريقة الدفع:* ${
-        paymentMethod === 'cash' ? 'كاش 💵' : 
-        paymentMethod === 'instapay' ? 'انستا باي 📱' : 
-        paymentMethod === 'wallet' ? 'محفظة كاش 📱' : 'فيزا 💳'
-      }\n` : `*Payment Method:* ${
-        paymentMethod === 'cash' ? 'Cash 💵' : 
-        paymentMethod === 'instapay' ? 'InstaPay 📱' : 
-        paymentMethod === 'wallet' ? 'Mobile Wallet 📱' : 'Visa 💳'
-      }\n`;
-      
-      if (paymentMethod === 'wallet') {
-        message += isRTL ? `*تم إرفاق صورة التحويل في النظام ✅*\n` : `*Transfer screenshot attached in system ✅*\n`;
+        message += `*${t('cart.order_type')}:* ${orderType === 'delivery' ? t('cart.delivery_type') : t('cart.pickup_type')}\n`;
+        if (orderType === 'delivery') message += `*${t('cart.address')}:* ${customerInfo.address}\n`;
+        message += `*${t('cart.payment_method')}:* ${
+          paymentMethod === 'cash' ? t('cart.cash_type') : 
+          paymentMethod === 'instapay' ? t('cart.instapay_type') : 
+          paymentMethod === 'wallet' ? t('cart.wallet_type') : t('cart.visa_type')
+        }\n`;
+        
+        message += `\n*${t('cart.items_label')}*\n`;
+        items.forEach(item => {
+          message += `- ${item.name} (x${item.quantity}) = ${item.price * item.quantity} ${t('common.currency')}\n`;
+        });
+        
+        message += `\n*${t('cart.subtotal')}:* ${subtotal} ${t('common.currency')}`;
+        if (appliedCoupon) message += `\n*${t('admin.nav_coupons')}:* -${finalDiscount} ${t('common.currency')}`;
+        if (pointsDiscount > 0) message += `\n*${t('admin.settings_points_system')}:* -${pointsDiscount} ${t('common.currency')}`;
+        if (orderType === 'delivery') message += `\n*${t('cart.delivery_fee')}:* ${activeDeliveryFee} ${t('common.currency')}`;
+        message += `\n*${t('cart.total')}:* ${finalTotal} ${t('common.currency')}`;
+        
+        if (customerInfo.notes) message += `\n\n*${t('cart.notes_label')}* ${customerInfo.notes}`;
+        
+        const encodedMessage = encodeURIComponent(message);
+        window.open(`https://wa.me/${activeWhatsApp}?text=${encodedMessage}`, '_blank');
       }
-
-      message += isRTL ? `\n*الطلبات:*\n` : `\n*Items:*\n`;
-      
-      items.forEach(item => {
-        message += `- ${item.name} (x${item.quantity}) = ${item.price * item.quantity} ${t('common.currency')}\n`;
-      });
-      
-      message += isRTL ? `\n*المجموع:* ${total} ج.م` : `\n*Subtotal:* ${total} EGP`;
-      if (orderType === 'delivery') message += isRTL ? `\n*خدمة التوصيل:* ${deliveryFee} ج.م` : `\n*Delivery Fee:* ${deliveryFee} EGP`;
-      message += isRTL ? `\n*الإجمالي النهائي:* ${finalTotal} ج.م` : `\n*Final Total:* ${finalTotal} EGP`;
-      
-      if (customerInfo.notes) message += isRTL ? `\n\n*ملاحظات:* ${customerInfo.notes}` : `\n\n*Notes:* ${customerInfo.notes}`;
-      
-      const encodedMessage = encodeURIComponent(message);
-      window.open(`https://wa.me/${activeWhatsApp}?text=${encodedMessage}`, '_blank');
       
       setIsSuccessModalOpen(true);
       clearCart();
     } catch (e) {
       console.error("Error creating order:", e);
-      toast.error(isRTL ? 'حدث خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى' : 'Error sending order, please try again');
+      toast.error(t('cart.error_sending'));
     } finally {
       setIsSubmitting(false);
     }
@@ -369,7 +369,7 @@ const CartPage: React.FC = () => {
               {/* Branch Selection */}
               {branches.length > 1 && (
                 <div className="space-y-2">
-                  <p className="text-sm font-bold text-gray-700">{isRTL ? 'اختر الفرع' : 'Select Branch'}</p>
+                  <p className="text-sm font-bold text-gray-700">{t('cart.select_branch')}</p>
                   <div className="relative">
                     <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
                     <select
@@ -409,6 +409,25 @@ const CartPage: React.FC = () => {
 
               {/* Customer Info */}
               <div className="space-y-3">
+                {settings?.global?.features?.enablePoints && !customerData && (
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      placeholder={t('cart.phone_placeholder')}
+                      className="flex-1 p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none"
+                      value={customerInfo.phone}
+                      onChange={e => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                    />
+                    <button
+                      onClick={handleCustomerLookup}
+                      disabled={isLoggingIn || !customerInfo.phone}
+                      className="px-4 py-2 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-all disabled:opacity-50"
+                    >
+                      {isLoggingIn ? '...' : t('nav.login')}
+                    </button>
+                  </div>
+                )}
+                
                 <div className="space-y-1">
                   <input
                     type="text"
@@ -576,11 +595,85 @@ const CartPage: React.FC = () => {
               </div>
 
               {/* Summary */}
-              <div className="pt-4 border-t border-gray-100 space-y-2">
+              <div className="pt-4 border-t border-gray-100 space-y-3">
+                {settings?.global?.features?.enableCoupons && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-bold text-gray-700">{t('admin.nav_coupons')}</p>
+                    <div className={`flex gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                      <input
+                        type="text"
+                        placeholder={t('admin.coupons_placeholder')}
+                        className={`flex-1 p-3 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-orange-600 transition-all ${isRTL ? 'text-right' : ''}`}
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        disabled={!!appliedCoupon}
+                      />
+                      {appliedCoupon ? (
+                        <button
+                          onClick={() => { setAppliedCoupon(null); setCouponCode(''); }}
+                          className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-sm font-bold hover:bg-red-100 transition-all"
+                        >
+                          {t('common.cancel')}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleApplyCoupon}
+                          disabled={isValidatingCoupon || !couponCode}
+                          className="px-4 py-2 bg-orange-50 text-orange-600 rounded-xl text-sm font-bold hover:bg-orange-100 transition-all disabled:opacity-50"
+                        >
+                          {isValidatingCoupon ? '...' : t('common.confirm')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {settings?.global?.features?.enablePoints && customerData && (
+                  <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-orange-600 text-white p-1.5 rounded-lg">
+                          <CheckCircle2 size={16} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">{t('admin.settings_points_system')}</p>
+                          <p className="font-bold text-gray-900">{customerData.points} {t('admin.settings_points_system')}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setUsePoints(!usePoints)}
+                        disabled={customerData.points < (settings.global.points?.minPointsToRedeem || 0)}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                          usePoints ? 'bg-orange-600 text-white' : 'bg-white text-orange-600 border border-orange-200'
+                        } disabled:opacity-50`}
+                      >
+                        {usePoints ? t('common.cancel') : t('common.confirm')}
+                      </button>
+                    </div>
+                    {customerData.points < (settings.global.points?.minPointsToRedeem || 0) && (
+                      <p className="text-[10px] text-orange-600 font-medium italic">
+                        * {t('admin.points_min_required').replace('{min}', settings.global.points?.minPointsToRedeem.toString())}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex justify-between text-gray-600">
                   <span>{t('cart.subtotal')}</span>
-                  <span>{total} {t('common.currency')}</span>
+                  <span>{subtotal} {t('common.currency')}</span>
                 </div>
+                {appliedCoupon && (
+                  <div className="flex justify-between text-green-600 font-medium">
+                    <span>{t('admin.coupons_discount')} ({appliedCoupon.code})</span>
+                    <span>-{finalDiscount} {t('common.currency')}</span>
+                  </div>
+                )}
+                {pointsDiscount > 0 && (
+                  <div className="flex justify-between text-green-600 font-medium">
+                    <span>{t('admin.settings_points_system')}</span>
+                    <span>-{pointsDiscount} {t('common.currency')}</span>
+                  </div>
+                )}
                 {orderType === 'delivery' && (
                   <div className="flex justify-between text-gray-600">
                     <span>{t('cart.delivery_fee')}</span>
@@ -589,30 +682,31 @@ const CartPage: React.FC = () => {
                 )}
                 <div className="flex justify-between text-xl font-bold text-gray-900 pt-2">
                   <span>{t('cart.total')}</span>
-                  <span>{total + activeDeliveryFee} {t('common.currency')}</span>
+                  <span>{finalTotal} {t('common.currency')}</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 pt-4">
                 <button
-                  onClick={sendToWhatsApp}
+                  onClick={handleOrder}
                   disabled={isSubmitting}
-                  className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white py-4 rounded-xl font-bold transition-all shadow-lg"
+                  className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 text-white py-4 rounded-xl font-bold transition-all shadow-lg"
                 >
                   {isSubmitting ? (
                     <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <>
-                      <Send size={20} />
-                      {t('cart.send_whatsapp')}
+                      {settings?.global?.features?.orderMethod === 'whatsapp' ? <Send size={20} /> : <CheckCircle2 size={20} />}
+                      {settings?.global?.features?.orderMethod === 'whatsapp' ? t('cart.send_whatsapp') : t('cart.confirm_order')}
                     </>
                   )}
                 </button>
                 <button
-                  onClick={generatePDF}
+                  onClick={() => printInvoice(Math.floor(Math.random() * 1000000))}
                   className="w-full flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white py-3 rounded-xl font-bold transition-all"
                 >
-                  {t('cart.download_pdf')}
+                  <Printer size={18} />
+                  {t('cart.print_receipt')}
                 </button>
               </div>
             </div>
@@ -646,7 +740,7 @@ const CartPage: React.FC = () => {
                   onClick={() => { clearCart(); setIsClearConfirmOpen(false); toast.success(t('cart.cleared_success')); }}
                   className="bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20"
                 >
-                  {isRTL ? 'نعم، مسح' : 'Yes, Clear'}
+                  {t('cart.yes_clear')}
                 </button>
               </div>
             </motion.div>
@@ -677,10 +771,11 @@ const CartPage: React.FC = () => {
                   {t('cart.back_to_menu')}
                 </button>
                 <button
-                  onClick={generatePDF}
+                  onClick={() => printInvoice(Math.floor(Math.random() * 1000000))}
                   className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-900 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
                 >
-                  {t('cart.download_pdf')}
+                  <Printer size={18} />
+                  {t('cart.print_receipt')}
                 </button>
               </div>
             </motion.div>

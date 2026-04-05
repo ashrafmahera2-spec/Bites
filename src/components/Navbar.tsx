@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, ShoppingBag, Languages } from 'lucide-react';
+import { ShoppingCart, ShoppingBag, Languages, User, LogIn, LayoutDashboard } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 
 const Navbar: React.FC = () => {
   const { items } = useCart();
-  const { language, setLanguage, t } = useLanguage();
+  const { language, setLanguage, t, isRTL } = useLanguage();
+  const { user, isAdmin, isCustomer } = useAuth();
   const [settings, setSettings] = useState<{ restaurantName: string; logoUrl?: string }>({
     restaurantName: "Bite's Menu",
     logoUrl: ''
@@ -42,20 +44,38 @@ const Navbar: React.FC = () => {
               <ShoppingBag size={24} className="text-white" />
             )}
           </div>
-          <span className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
+          <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent truncate max-w-[150px] sm:max-w-none">
             {settings.restaurantName}
           </span>
         </Link>
         
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-1 sm:gap-4">
           <button
             onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-600 transition-all border border-gray-200 text-sm font-medium"
-            title={language === 'ar' ? 'Switch to English' : 'تغيير للغة العربية'}
+            className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-600 transition-all border border-gray-200 text-xs sm:text-sm font-medium"
+            title={t('nav.switch_language')}
           >
-            <Languages size={18} className="text-orange-600" />
+            <Languages size={16} className="text-orange-600" />
             <span>{language === 'ar' ? 'EN' : 'AR'}</span>
           </button>
+
+          {user ? (
+            <Link 
+              to={isAdmin ? "/admin" : "/profile"} 
+              className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-full bg-orange-50 hover:bg-orange-100 text-orange-600 transition-all border border-orange-100 text-xs sm:text-sm font-medium"
+            >
+              {isAdmin ? <LayoutDashboard size={18} /> : <User size={18} />}
+              <span className="hidden sm:inline">{user.name || user.username}</span>
+            </Link>
+          ) : (
+            <Link 
+              to="/login" 
+              className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-600 transition-all border border-gray-200 text-xs sm:text-sm font-medium"
+            >
+              <LogIn size={18} />
+              <span className="hidden sm:inline">{t('nav.login')}</span>
+            </Link>
+          )}
 
           <Link to="/cart" className="relative p-2 hover:bg-gray-100 rounded-full transition-colors" title={t('nav.cart')}>
             <ShoppingCart size={22} className="text-gray-600" />

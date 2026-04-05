@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
-import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow } from 'lucide-react';
+import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow, Settings as SettingsIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -29,6 +29,18 @@ interface Settings {
     facebook: string;
     instagram: string;
     tiktok: string;
+  };
+  features: {
+    enableCoupons: boolean;
+    enablePoints: boolean;
+    requireLogin: boolean;
+    orderMethod: 'whatsapp' | 'platform';
+    menuTheme: 'classic' | 'bottom-nav' | 'sidebar';
+  };
+  pointsConfig: {
+    pointsPerCurrency: number;
+    currencyPerPoint: number;
+    minPointsToRedeem: number;
   };
 }
 
@@ -66,6 +78,18 @@ const AdminSettings: React.FC = () => {
       facebook: '',
       instagram: '',
       tiktok: ''
+    },
+    features: {
+      enableCoupons: true,
+      enablePoints: true,
+      requireLogin: false,
+      orderMethod: 'platform',
+      menuTheme: 'classic'
+    },
+    pointsConfig: {
+      pointsPerCurrency: 1,
+      currencyPerPoint: 0.1,
+      minPointsToRedeem: 100
     }
   });
 
@@ -187,11 +211,11 @@ const AdminSettings: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className={`flex justify-between items-center ${isRTL ? 'flex-row-reverse' : ''}`}>
+      <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
         <h2 className="text-2xl font-bold text-gray-900">{t('admin.settings')}</h2>
         <button
           onClick={handleSave}
-          className="flex items-center gap-2 bg-orange-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-orange-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all"
         >
           <Save size={20} />
           {saved ? t('admin.settings_saved_btn') : t('common.save')}
@@ -427,29 +451,127 @@ const AdminSettings: React.FC = () => {
                 />
               </div>
               <div className={`flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                <Music2 size={18} className="text-black" />
+              <Music2 size={18} className="text-black" />
+              <input
+                type="url"
+                placeholder={t('admin.settings_tiktok_placeholder')}
+                className={`flex-1 p-2 rounded-lg border border-gray-100 outline-none text-sm ${isRTL ? 'text-right' : 'text-left'}`}
+                value={settings.socialLinks.tiktok}
+                onChange={e => setSettings({ ...settings, socialLinks: { ...settings.socialLinks, tiktok: e.target.value } })}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-gray-50 space-y-4">
+            <h4 className={`font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <SettingsIcon className="text-orange-600" size={18} />
+              {t('admin.settings_features')}
+            </h4>
+            <div className="space-y-3">
+              <label className={`flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <span className="font-medium">{t('admin.settings_enable_coupons')}</span>
                 <input
-                  type="url"
-                  placeholder={t('admin.settings_tiktok_placeholder')}
-                  className={`flex-1 p-2 rounded-lg border border-gray-100 outline-none text-sm ${isRTL ? 'text-right' : 'text-left'}`}
-                  value={settings.socialLinks.tiktok}
-                  onChange={e => setSettings({ ...settings, socialLinks: { ...settings.socialLinks, tiktok: e.target.value } })}
+                  type="checkbox"
+                  className="w-5 h-5 accent-orange-600"
+                  checked={settings.features.enableCoupons}
+                  onChange={e => setSettings({ ...settings, features: { ...settings.features, enableCoupons: e.target.checked } })}
                 />
+              </label>
+              <label className={`flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <span className="font-medium">{t('admin.settings_enable_points')}</span>
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 accent-orange-600"
+                  checked={settings.features.enablePoints}
+                  onChange={e => setSettings({ ...settings, features: { ...settings.features, enablePoints: e.target.checked } })}
+                />
+              </label>
+              <label className={`flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <span className="font-medium">{t('admin.settings_require_login')}</span>
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 accent-orange-600"
+                  checked={settings.features.requireLogin}
+                  onChange={e => setSettings({ ...settings, features: { ...settings.features, requireLogin: e.target.checked } })}
+                />
+              </label>
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-700">{t('admin.settings_order_method')}</label>
+                <select
+                  className={`w-full p-3 rounded-xl border border-gray-200 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                  value={settings.features.orderMethod}
+                  onChange={e => setSettings({ ...settings, features: { ...settings.features, orderMethod: e.target.value as any } })}
+                >
+                  <option value="platform">{t('admin.settings_order_platform')}</option>
+                  <option value="whatsapp">{t('admin.settings_order_whatsapp')}</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-700">{t('admin.settings_menu_theme')}</label>
+                <select
+                  className={`w-full p-3 rounded-xl border border-gray-200 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                  value={settings.features.menuTheme}
+                  onChange={e => setSettings({ ...settings, features: { ...settings.features, menuTheme: e.target.value as any } })}
+                >
+                  <option value="classic">{t('admin.settings_theme_classic')}</option>
+                  <option value="bottom-nav">{t('admin.settings_theme_bottom_nav')}</option>
+                  <option value="sidebar">{t('admin.settings_theme_sidebar')}</option>
+                </select>
               </div>
             </div>
           </div>
+
+          {settings.features.enablePoints && (
+            <div className="pt-6 border-t border-gray-50 space-y-4">
+              <h4 className={`font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <TrendingUp className="text-orange-600" size={18} />
+                {t('admin.settings_points_config')}
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('admin.settings_points_per_currency')}</label>
+                  <input
+                    type="number"
+                    className={`w-full p-2 rounded-lg border border-gray-100 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                    value={settings.pointsConfig.pointsPerCurrency}
+                    onChange={e => setSettings({ ...settings, pointsConfig: { ...settings.pointsConfig, pointsPerCurrency: Number(e.target.value) } })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('admin.settings_currency_per_point')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={`w-full p-2 rounded-lg border border-gray-100 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                    value={settings.pointsConfig.currencyPerPoint}
+                    onChange={e => setSettings({ ...settings, pointsConfig: { ...settings.pointsConfig, currencyPerPoint: Number(e.target.value) } })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('admin.settings_min_points_redeem')}</label>
+                  <input
+                    type="number"
+                    className={`w-full p-2 rounded-lg border border-gray-100 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                    value={settings.pointsConfig.minPointsToRedeem}
+                    onChange={e => setSettings({ ...settings, pointsConfig: { ...settings.pointsConfig, minPointsToRedeem: Number(e.target.value) } })}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* PWA Settings */}
         <div className={`bg-white p-8 rounded-3xl shadow-sm border border-gray-100 space-y-6 ${isRTL ? 'text-right' : 'text-left'}`}>
           <h3 className={`text-xl font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
             <AppWindow className="text-orange-600" />
-            إعدادات تطبيق PWA
+            {t('admin.settings_pwa_title')}
           </h3>
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">اسم التطبيق الكامل</label>
+              <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_pwa_name')}</label>
               <input
                 type="text"
                 className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
@@ -458,7 +580,7 @@ const AdminSettings: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">الاسم المختصر (يظهر تحت الأيقونة)</label>
+              <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_pwa_short_name')}</label>
               <input
                 type="text"
                 className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
@@ -467,7 +589,7 @@ const AdminSettings: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">وصف التطبيق</label>
+              <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_pwa_description')}</label>
               <textarea
                 className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[80px] ${isRTL ? 'text-right' : 'text-left'}`}
                 value={pwaSettings.description}
@@ -476,7 +598,7 @@ const AdminSettings: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">لون السمة (Theme)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_pwa_theme_color')}</label>
                 <div className="flex gap-2">
                   <input
                     type="color"
@@ -493,7 +615,7 @@ const AdminSettings: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">لون الخلفية</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_pwa_background_color')}</label>
                 <div className="flex gap-2">
                   <input
                     type="color"
@@ -539,7 +661,7 @@ const AdminSettings: React.FC = () => {
             />
           </div>
 
-          <div className={`flex gap-3 w-full ${isRTL ? 'flex-row-reverse' : ''}`}>
+          <div className={`flex flex-col sm:flex-row gap-3 w-full ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
             <button
               onClick={downloadQR}
               className="flex-1 flex items-center justify-center gap-2 bg-gray-900 text-white py-4 rounded-xl font-bold hover:bg-black transition-all"

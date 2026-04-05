@@ -8,7 +8,6 @@
 @layer base {
   body {
     @apply font-sans antialiased text-gray-900;
-    direction: rtl;
   }
 }
 

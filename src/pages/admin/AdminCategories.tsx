@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { Plus, Edit2, Trash2, X, GripVertical, Search } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+import ConfirmModal from '../../components/ConfirmModal';
 
 interface Category {
   id: string;
@@ -16,6 +17,8 @@ const AdminCategories: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     order: 0
@@ -56,16 +59,17 @@ const AdminCategories: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm(t('admin.categories_delete_confirm'))) {
-      try {
-        await api.deleteCategory(id);
-        toast.success(t('admin.categories_deleted'));
-        fetchCategories();
-      } catch (error) {
-        console.error("Error deleting category:", error);
-        toast.error(t('common.error'));
-      }
+  const handleDelete = async () => {
+    if (!categoryToDelete) return;
+    try {
+      await api.deleteCategory(categoryToDelete);
+      toast.success(t('admin.categories_deleted'));
+      fetchCategories();
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      toast.error(t('common.error'));
+    } finally {
+      setCategoryToDelete(null);
     }
   };
 
@@ -75,10 +79,18 @@ const AdminCategories: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${isRTL ? 'md:flex-row-reverse' : ''}`}>
+      <ConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => { setIsConfirmOpen(false); setCategoryToDelete(null); }}
+        onConfirm={handleDelete}
+        title={t('common.delete')}
+        message={t('admin.categories_delete_confirm')}
+        type="danger"
+      />
+      <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
         <h2 className="text-2xl font-bold text-gray-900">{t('admin.categories_title')}</h2>
-        <div className={`flex items-center gap-3 w-full md:w-auto ${isRTL ? 'flex-row-reverse' : ''}`}>
-          <div className="relative flex-1 md:w-64">
+        <div className={`flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
+          <div className="relative w-full sm:w-64">
             <Search className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
             <input
               type="text"
@@ -90,7 +102,7 @@ const AdminCategories: React.FC = () => {
           </div>
           <button
             onClick={() => { setEditingCategory(null); setFormData({ name: '', order: categories.length }); setIsModalOpen(true); }}
-            className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all whitespace-nowrap"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all whitespace-nowrap"
           >
             <Plus size={20} />
             {t('admin.categories_add')}
@@ -120,7 +132,7 @@ const AdminCategories: React.FC = () => {
                     <Edit2 size={18} />
                   </button>
                   <button
-                    onClick={() => handleDelete(cat.id)}
+                    onClick={() => { setCategoryToDelete(cat.id); setIsConfirmOpen(true); }}
                     className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                   >
                     <Trash2 size={18} />

@@ -5,13 +5,17 @@ import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
+import { LanguageProvider } from './contexts/LanguageContext';
+
 // Register service worker for PWA
 registerSW({ immediate: true });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <LanguageProvider>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </LanguageProvider>
   </StrictMode>,
 );

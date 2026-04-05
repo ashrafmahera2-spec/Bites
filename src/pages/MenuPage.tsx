@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import Navbar from '../components/Navbar';
+import MenuLayout from '../components/MenuLayout';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle, UtensilsCrossed, Building2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle, UtensilsCrossed, Building2, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -62,6 +63,21 @@ const MenuPage: React.FC = () => {
 
   const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
 
+  const isRestaurantOpen = React.useMemo(() => {
+    if (!settings?.openingHours?.isOpen) return false;
+    
+    const now = new Date();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const { start, end } = settings.openingHours;
+    
+    if (start <= end) {
+      return currentTime >= start && currentTime <= end;
+    } else {
+      // Overnight case (e.g., 22:00 to 04:00)
+      return currentTime >= start || currentTime <= end;
+    }
+  }, [settings]);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -107,11 +123,14 @@ const MenuPage: React.FC = () => {
   }) : [];
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      <Navbar />
-      
+    <MenuLayout 
+      settings={settings} 
+      categories={categories} 
+      activeCategory={activeCategory} 
+      setActiveCategory={setActiveCategory}
+    >
       {/* Hero Section */}
-      <div className="bg-orange-600 text-white py-12 px-4 text-center">
+      <div id="hero-section" className="bg-orange-600 text-white py-12 px-4 text-center">
         <div className="flex flex-col items-center gap-4 mb-6">
           <div className="bg-white p-4 rounded-3xl shadow-2xl shadow-black/20 w-24 h-24 flex items-center justify-center overflow-hidden">
             {settings?.logoUrl ? (
@@ -143,7 +162,7 @@ const MenuPage: React.FC = () => {
         )}
         
         {/* Search Bar */}
-        <div className="max-w-md mx-auto mt-8 relative">
+        <div id="search-section" className="max-w-md mx-auto mt-8 relative">
           <Search className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
           <input
             type="text"
@@ -189,7 +208,21 @@ const MenuPage: React.FC = () => {
         </div>
       )}
 
-      {/* Categories Bar */}
+      {/* Closed Notice */}
+      {!isRestaurantOpen && !loading && (
+        <div className="max-w-7xl mx-auto px-4 mt-4">
+          <div className="bg-orange-50 border border-orange-200 text-orange-800 p-4 rounded-2xl flex items-center gap-3">
+            <Clock className="w-6 h-6 shrink-0" />
+            <div>
+              <p className="font-bold">{t('menu.closed_title')}</p>
+              <p className="text-sm opacity-90">
+                {t('menu.closed_desc')} {settings?.openingHours?.start} - {settings?.openingHours?.end}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="max-w-7xl mx-auto px-4 mt-4">
           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl flex items-center justify-between">
@@ -197,7 +230,7 @@ const MenuPage: React.FC = () => {
               <AlertCircle size={20} />
               <p className="font-medium">
                 {error === 'DB not connected' 
-                  ? (isRTL ? 'يرجى إعداد قاعدة البيانات من لوحة التحكم لتفعيل المتجر.' : 'Please set up the database from the admin panel to activate the store.')
+                  ? t('admin.db_setup_required')
                   : `${t('common.error')}: ${error}`}
               </p>
             </div>
@@ -210,7 +243,8 @@ const MenuPage: React.FC = () => {
         </div>
       )}
 
-      <div className="sticky top-[61px] z-40 bg-white shadow-sm overflow-x-auto whitespace-nowrap px-4 py-3 scrollbar-hide">
+      {/* Categories Bar */}
+      <div id="categories-section" className="sticky top-[61px] z-40 bg-white shadow-sm overflow-x-auto whitespace-nowrap px-4 py-3 scrollbar-hide">
         <div className="flex gap-2 max-w-7xl mx-auto">
           <button
             onClick={() => setActiveCategory('all')}
@@ -294,7 +328,7 @@ const MenuPage: React.FC = () => {
                       </div>
                       <p className="text-gray-500 text-sm mb-4 line-clamp-2 h-10">{product.description}</p>
                       
-                      {product.isAvailable && (
+                      {product.isAvailable && isRestaurantOpen && (
                         <div className="flex items-center justify-between">
                           {cartItem ? (
                             <div className="flex items-center gap-3 bg-gray-100 rounded-full px-3 py-1">
@@ -327,6 +361,12 @@ const MenuPage: React.FC = () => {
                               {t('product.add_to_cart')}
                             </button>
                           )}
+                        </div>
+                      )}
+
+                      {product.isAvailable && !isRestaurantOpen && (
+                        <div className="text-center py-2 px-4 bg-gray-100 rounded-xl text-gray-500 text-sm font-bold">
+                          {t('menu.closed_now')}
                         </div>
                       )}
                     </div>
@@ -392,7 +432,7 @@ const MenuPage: React.FC = () => {
                   <div className="mb-8 bg-orange-50 p-4 rounded-2xl border border-orange-100">
                     <h4 className="text-sm font-bold text-orange-800 mb-2 flex items-center gap-2">
                       <UtensilsCrossed size={16} />
-                      {isRTL ? 'المكونات:' : 'Ingredients:'}
+                      {t('product.ingredients_label')}
                     </h4>
                     <p className="text-sm text-orange-700 leading-relaxed">
                       {selectedProduct.ingredients}
@@ -478,7 +518,7 @@ const MenuPage: React.FC = () => {
           target="_blank"
           rel="noopener noreferrer"
           className="fixed bottom-24 right-6 z-50 bg-green-500 text-white p-4 rounded-full shadow-2xl hover:bg-green-600 transition-all hover:scale-110 active:scale-95"
-          aria-label="تواصل معنا عبر واتساب"
+          aria-label={t('whatsapp.aria_label')}
         >
           <MessageCircle size={28} />
         </a>
@@ -496,7 +536,7 @@ const MenuPage: React.FC = () => {
           mamlinc
         </a>
       </div>
-    </div>
+    </MenuLayout>
   );
 };
 

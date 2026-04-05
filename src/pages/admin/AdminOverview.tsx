@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
-import { ShoppingBag, TrendingUp, Users, Clock, CheckCircle, XCircle, Calendar as CalendarIcon, Package, PieChart as PieChartIcon, BarChart as BarChartIcon, AlertCircle, Settings, UtensilsCrossed, Building2 } from 'lucide-react';
+import { ShoppingBag, TrendingUp, Users, Clock, CheckCircle, XCircle, Calendar as CalendarIcon, Package, PieChart as PieChartIcon, BarChart as BarChartIcon, AlertCircle, Settings, UtensilsCrossed, Building2, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell, PieChart, Pie } from 'recharts';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -47,7 +47,7 @@ const AdminOverview: React.FC = () => {
       try {
         const [ordersData, productsData, categoriesData, branchesData, healthData] = await Promise.all([
           api.getOrders(selectedBranchId === 'all' ? undefined : selectedBranchId),
-          api.getProducts(),
+          api.getProducts(selectedBranchId === 'all' ? undefined : selectedBranchId),
           api.getCategories(),
           api.getBranches(),
           api.getHealth()
@@ -169,38 +169,40 @@ const AdminOverview: React.FC = () => {
     { label: t('admin.stat_total_revenue'), value: `${stats.totalRevenue} ${t('common.currency')}`, icon: TrendingUp, color: 'bg-green-500' },
     { label: t('admin.stat_pending_orders'), value: stats.pendingOrders, icon: Clock, color: 'bg-orange-500' },
     { label: t('admin.stat_completed_orders'), value: stats.completedOrders, icon: CheckCircle, color: 'bg-emerald-500' },
-    { label: isRTL ? 'في المطبخ' : 'In Kitchen', value: stats.inProgressOrders + stats.pendingOrders, icon: UtensilsCrossed, color: 'bg-indigo-500' },
+    { label: t('admin.status_in_kitchen'), value: stats.inProgressOrders + stats.pendingOrders, icon: UtensilsCrossed, color: 'bg-indigo-500' },
   ];
 
   if (loading) return <div className="flex items-center justify-center h-64">{t('common.loading')}</div>;
 
   return (
     <div className={`space-y-8 ${isRTL ? 'text-right' : 'text-left'}`}>
-      <div className={`flex justify-between items-center ${isRTL ? 'flex-row-reverse' : ''}`}>
-        <div className={`flex items-center gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
+      <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
+        <div className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
           <h2 className="text-2xl font-bold text-gray-900">{t('admin.overview_title')}</h2>
-          <Link 
-            to="/" 
-            className="text-sm font-bold text-orange-600 bg-orange-50 px-4 py-2 rounded-xl hover:bg-orange-100 transition-all"
-          >
-            {t('admin.view_menu')}
-          </Link>
-          <div className="relative">
-            <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
-            <select
-              className={`${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              disabled={user?.role !== 'admin'}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Link 
+              to="/" 
+              className="text-sm font-bold text-orange-600 bg-orange-50 px-4 py-2 rounded-xl hover:bg-orange-100 transition-all flex-1 sm:flex-none text-center"
             >
-              {user?.role === 'admin' && <option value="all">{isRTL ? 'جميع الفروع' : 'All Branches'}</option>}
-              {branches.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+              {t('admin.view_menu')}
+            </Link>
+            <div className="relative flex-1 sm:flex-none">
+              <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+              <select
+                className={`w-full ${isRTL ? 'pr-10 pl-4' : 'pl-10 pr-4'} py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none text-sm appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
+                value={selectedBranchId}
+                onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                disabled={user?.role !== 'admin'}
+              >
+                {user?.role === 'admin' && <option value="all">{t('admin.branches_all')}</option>}
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
-        <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
+        <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm w-full sm:w-auto text-center">
           {t('admin.last_update')}: {new Date().toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US')}
         </div>
       </div>
@@ -249,64 +251,46 @@ const AdminOverview: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         {statCards.map((stat, idx) => (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            key={idx}
-            className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 ${isRTL ? 'flex-row-reverse text-right' : ''}`}
-          >
-            <div className={`${stat.color} p-4 rounded-2xl text-white shadow-lg shadow-${stat.color.split('-')[1]}-500/20`}>
-              <stat.icon size={24} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 font-medium">{stat.label}</p>
-              <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-            </div>
-          </motion.div>
+          <StatCard key={idx} {...stat} isRTL={isRTL} />
         ))}
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Link to="/admin/products" className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 hover:bg-gray-50 transition-all group ${isRTL ? 'flex-row-reverse text-right' : ''}`}>
-          <div className="bg-orange-100 p-3 rounded-2xl text-orange-600 group-hover:scale-110 transition-transform">
-            <Package size={24} />
-          </div>
-          <div>
-            <p className="font-bold text-gray-900">{t('admin.quick_add_product')}</p>
-            <p className="text-xs text-gray-500">{t('admin.quick_add_product_subtitle')}</p>
-          </div>
-        </Link>
-        <Link to="/admin/orders" className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 hover:bg-gray-50 transition-all group ${isRTL ? 'flex-row-reverse text-right' : ''}`}>
-          <div className="bg-blue-100 p-3 rounded-2xl text-blue-600 group-hover:scale-110 transition-transform">
-            <ShoppingBag size={24} />
-          </div>
-          <div>
-            <p className="font-bold text-gray-900">{t('admin.quick_manage_orders')}</p>
-            <p className="text-xs text-gray-500">{t('admin.quick_manage_orders_subtitle')}</p>
-          </div>
-        </Link>
-        <Link to="/admin/settings" className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 hover:bg-gray-50 transition-all group ${isRTL ? 'flex-row-reverse text-right' : ''}`}>
-          <div className="bg-purple-100 p-3 rounded-2xl text-purple-600 group-hover:scale-110 transition-transform">
-            <Settings size={24} />
-          </div>
-          <div>
-            <p className="font-bold text-gray-900">{t('admin.quick_settings')}</p>
-            <p className="text-xs text-gray-500">{t('admin.quick_settings_subtitle')}</p>
-          </div>
-        </Link>
-        <Link to="/admin/kitchen" className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 hover:bg-gray-50 transition-all group ${isRTL ? 'flex-row-reverse text-right' : ''}`}>
-          <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600 group-hover:scale-110 transition-transform">
-            <UtensilsCrossed size={24} />
-          </div>
-          <div>
-            <p className="font-bold text-gray-900">{isRTL ? 'شاشة المطبخ' : 'Kitchen Screen'}</p>
-            <p className="text-xs text-gray-500">{isRTL ? 'إدارة تحضير الطلبات' : 'Manage order preparation'}</p>
-          </div>
-        </Link>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <QuickAction 
+          title={t('admin.quick_add_product')}
+          subtitle={t('admin.quick_add_product_subtitle')}
+          icon={<Plus className="w-6 h-6" />}
+          to="/admin/products"
+          color="bg-orange-600"
+          isRTL={isRTL}
+        />
+        <QuickAction 
+          title={t('admin.quick_manage_orders')}
+          subtitle={t('admin.quick_manage_orders_subtitle')}
+          icon={<ShoppingBag className="w-6 h-6" />}
+          to="/admin/orders"
+          color="bg-blue-600"
+          isRTL={isRTL}
+        />
+        <QuickAction 
+          title={t('admin.quick_kitchen')}
+          subtitle={t('admin.quick_kitchen_subtitle')}
+          icon={<UtensilsCrossed className="w-6 h-6" />}
+          to="/kitchen"
+          color="bg-green-600"
+          isRTL={isRTL}
+        />
+        <QuickAction 
+          title={t('admin.quick_settings')}
+          subtitle={t('admin.quick_settings_subtitle')}
+          icon={<Settings className="w-6 h-6" />}
+          to="/admin/settings"
+          color="bg-gray-800"
+          isRTL={isRTL}
+        />
       </div>
 
       {/* Revenue Chart */}
@@ -480,8 +464,8 @@ const AdminOverview: React.FC = () => {
           <div className="space-y-6">
             {[
               { label: t('admin.status_completed'), count: stats.completedOrders, total: stats.totalOrders, color: 'bg-green-500' },
-              { label: isRTL ? 'جاهز' : 'Ready', count: stats.readyOrders, total: stats.totalOrders, color: 'bg-indigo-500' },
-              { label: isRTL ? 'جاري التحضير' : 'In Progress', count: stats.inProgressOrders, total: stats.totalOrders, color: 'bg-blue-500' },
+              { label: t('admin.status_ready'), count: stats.readyOrders, total: stats.totalOrders, color: 'bg-indigo-500' },
+              { label: t('admin.status_in_progress'), count: stats.inProgressOrders, total: stats.totalOrders, color: 'bg-blue-500' },
               { label: t('admin.status_pending'), count: stats.pendingOrders, total: stats.totalOrders, color: 'bg-orange-500' },
               { label: t('admin.status_cancelled'), count: stats.cancelledOrders, total: stats.totalOrders, color: 'bg-red-500' },
             ].map((item, idx) => (
@@ -551,8 +535,8 @@ const AdminOverview: React.FC = () => {
                       'bg-red-100 text-red-600'
                     }`}>
                       {order.status === 'pending' ? t('admin.status_pending') :
-                       order.status === 'in-progress' ? (isRTL ? 'تحضير' : 'Prep') :
-                       order.status === 'ready' ? (isRTL ? 'جاهز' : 'Ready') :
+                       order.status === 'in-progress' ? t('admin.status_prep') :
+                       order.status === 'ready' ? t('admin.status_ready') :
                        order.status === 'completed' ? t('admin.status_completed') : t('admin.status_cancelled')}
                     </span>
                   </td>
@@ -577,5 +561,45 @@ const AdminOverview: React.FC = () => {
     </div>
   );
 };
+
+function StatCard({ label, value, icon: Icon, color, isRTL }: any) {
+  return (
+    <motion.div
+      whileHover={{ y: -5 }}
+      className={`bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4 ${isRTL ? 'flex-row-reverse text-right' : ''}`}
+    >
+      <div className={`${color} p-4 rounded-2xl text-white shadow-lg shadow-${color.split('-')[1]}-500/20`}>
+        <Icon size={24} />
+      </div>
+      <div>
+        <p className="text-sm text-gray-500 font-medium">{label}</p>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+      </div>
+    </motion.div>
+  );
+}
+
+function QuickAction({ title, subtitle, icon, to, color, isRTL }: any) {
+  return (
+    <Link to={to}>
+      <motion.div 
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        className={`${color} p-6 rounded-3xl text-white shadow-lg relative overflow-hidden group h-full`}
+      >
+        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+          {React.cloneElement(icon, { size: 48 })}
+        </div>
+        <div className="relative z-10">
+          <div className="bg-white/20 w-10 h-10 rounded-xl flex items-center justify-center mb-4">
+            {icon}
+          </div>
+          <h4 className="font-bold mb-1">{title}</h4>
+          <p className="text-white/70 text-xs">{subtitle}</p>
+        </div>
+      </motion.div>
+    </Link>
+  );
+}
 
 export default AdminOverview;

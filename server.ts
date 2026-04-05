@@ -4,7 +4,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import mysql, { Pool } from 'mysql2/promise';
 import fs from 'fs/promises';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 const CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
 const JSON_DB_FILE = path.join(process.cwd(), 'local-db.json');
@@ -41,6 +41,18 @@ async function getJsonData() {
           facebook: '',
           instagram: '',
           tiktok: ''
+        },
+        features: {
+          enableCoupons: true,
+          enablePoints: true,
+          requireLogin: false,
+          orderMethod: 'platform', // 'whatsapp' or 'platform'
+          menuTheme: 'classic' // 'classic', 'bottom-nav', 'sidebar'
+        },
+        pointsConfig: {
+          pointsPerCurrency: 1,
+          currencyPerPoint: 0.1,
+          minPointsToRedeem: 100
         }
       }
     },
@@ -60,6 +72,8 @@ async function getJsonData() {
     branches: [
       { id: 1, name: 'الفرع الرئيسي', address: 'كفر البطيخ، أمام المسجد الكبير', phone: '201012345678', isActive: true }
     ],
+    customers: [],
+    coupons: [],
     orders: [],
     errors: []
   };
@@ -78,6 +92,8 @@ async function getJsonData() {
       staff: parsed.staff || initialData.staff,
       pwa: parsed.pwa || initialData.pwa,
       branches: parsed.branches || initialData.branches,
+      customers: parsed.customers || initialData.customers,
+      coupons: parsed.coupons || initialData.coupons,
       orders: parsed.orders || initialData.orders,
       errors: parsed.errors || initialData.errors
     };
@@ -203,6 +219,29 @@ async function initDB(p: Pool) {
       isActive BOOLEAN DEFAULT TRUE,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (branchId) REFERENCES branches(id) ON DELETE SET NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS coupons (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      type VARCHAR(20) DEFAULT 'percentage',
+      value DECIMAL(10, 2) NOT NULL,
+      minOrder DECIMAL(10, 2) DEFAULT 0,
+      maxDiscount DECIMAL(10, 2),
+      expiryDate TIMESTAMP,
+      usageLimit INT DEFAULT 0,
+      usedCount INT DEFAULT 0,
+      isActive BOOLEAN DEFAULT TRUE,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS customers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      phone VARCHAR(20) UNIQUE NOT NULL,
+      email VARCHAR(100),
+      password VARCHAR(255),
+      points INT DEFAULT 0,
+      isActive BOOLEAN DEFAULT TRUE,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`
   ];
 
@@ -296,6 +335,18 @@ async function initDB(p: Pool) {
         facebook: '',
         instagram: '',
         tiktok: ''
+      },
+      features: {
+        enableCoupons: true,
+        enablePoints: true,
+        requireLogin: false,
+        orderMethod: 'platform',
+        menuTheme: 'classic'
+      },
+      pointsConfig: {
+        pointsPerCurrency: 1,
+        currencyPerPoint: 0.1,
+        minPointsToRedeem: 100
       }
     })]);
 
@@ -715,7 +766,7 @@ async function startServer() {
 
   app.post('/api/orders', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
-    const { customerName, customerPhone, address, items, total, paymentMethod, type, screenshot, status, branchId } = req.body;
+    const { customerName, customerPhone, address, items, total, paymentMethod, type, screenshot, status, branchId, couponCode, pointsUsed, pointsValue } = req.body;
     
     if (!p) {
       const data = await getJsonData();
@@ -730,21 +781,64 @@ async function startServer() {
         type,
         screenshot,
         branchId,
+        couponCode,
+        pointsUsed,
+        pointsValue,
         status: status || 'pending',
         createdAt: new Date().toISOString()
       };
       data.orders.push(newOrder);
+
+      // Handle Points deduction
+      if (pointsUsed > 0 && data.customers) {
+        const customerIndex = data.customers.findIndex((c: any) => c.phone === customerPhone);
+        if (customerIndex !== -1 && data.customers[customerIndex]) {
+          data.customers[customerIndex].points = (data.customers[customerIndex].points || 0) - pointsUsed;
+        }
+      }
+
+      // Handle Coupon usage
+      if (couponCode && data.coupons) {
+        const couponIndex = data.coupons.findIndex((c: any) => c.code === couponCode);
+        if (couponIndex !== -1 && data.coupons[couponIndex]) {
+          data.coupons[couponIndex].usedCount = (data.coupons[couponIndex].usedCount || 0) + 1;
+        }
+      }
+
       await saveJsonData(data);
       return res.json(newOrder);
     }
     
-    const [result]: any = await p.query(
-      'INSERT INTO orders (customerName, customerPhone, address, items, total, paymentMethod, type, screenshot, status, branchId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [customerName, customerPhone, address, JSON.stringify(items), total, paymentMethod, type, screenshot, status || 'pending', branchId]
-    );
-    
-    const [rows]: any = await p.query('SELECT * FROM orders WHERE id = ?', [result.insertId]);
-    res.json(rows[0]);
+    // Start transaction for SQL
+    const connection = await p.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [result]: any = await connection.query(
+        'INSERT INTO orders (customerName, customerPhone, address, items, total, paymentMethod, type, screenshot, status, branchId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [customerName, customerPhone, address, JSON.stringify(items), total, paymentMethod, type, screenshot, status || 'pending', branchId]
+      );
+
+      // Handle Points deduction
+      if (pointsUsed > 0) {
+        await connection.query('UPDATE customers SET points = points - ? WHERE phone = ?', [pointsUsed, customerPhone]);
+      }
+
+      // Handle Coupon usage
+      if (couponCode) {
+        await connection.query('UPDATE coupons SET usedCount = usedCount + 1 WHERE code = ?', [couponCode]);
+      }
+
+      await connection.commit();
+      
+      const [rows]: any = await connection.query('SELECT * FROM orders WHERE id = ?', [result.insertId]);
+      res.json(rows[0]);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }));
 
   app.patch('/api/orders/:id', asyncHandler(async (req: any, res: any) => {
@@ -755,15 +849,61 @@ async function startServer() {
       const data = await getJsonData();
       const index = data.orders.findIndex((o: any) => o.id.toString() === req.params.id);
       if (index !== -1) {
+        const oldStatus = data.orders[index].status;
         data.orders[index].status = status;
+
+        // Handle points earning on delivery/completion
+        if ((status === 'delivered' || status === 'completed') && oldStatus !== 'delivered' && oldStatus !== 'completed') {
+          const order = data.orders[index];
+          const settings = data.settings.global;
+          if (settings?.features?.enablePoints && settings?.pointsConfig?.pointsPerCurrency) {
+            const pointsToEarn = Math.floor(order.total * settings.pointsConfig.pointsPerCurrency);
+            if (data.customers) {
+              const customerIndex = data.customers.findIndex((c: any) => c.phone === order.customerPhone);
+              if (customerIndex !== -1 && data.customers[customerIndex]) {
+                data.customers[customerIndex].points = (data.customers[customerIndex].points || 0) + pointsToEarn;
+              }
+            }
+          }
+        }
+
         await saveJsonData(data);
         return res.json({ success: true });
       }
       return res.status(404).json({ error: 'Order not found' });
     }
     
-    await p.query('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
-    res.json({ success: true });
+    // SQL Transaction for status update and points earning
+    const connection = await p.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [orderRows]: any = await connection.query('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+      const order = orderRows[0];
+
+      if (order) {
+        const oldStatus = order.status;
+        await connection.query('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
+
+        if ((status === 'delivered' || status === 'completed') && oldStatus !== 'delivered' && oldStatus !== 'completed') {
+          const [settingsRows]: any = await connection.query('SELECT value FROM settings WHERE id = "global"');
+          const settings = settingsRows[0]?.value;
+          
+          if (settings?.features?.enablePoints && settings?.pointsConfig?.pointsPerCurrency) {
+            const pointsToEarn = Math.floor(order.total * settings.pointsConfig.pointsPerCurrency);
+            await connection.query('UPDATE customers SET points = points + ? WHERE phone = ?', [pointsToEarn, order.customerPhone]);
+          }
+        }
+      }
+
+      await connection.commit();
+      res.json({ success: true });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }));
 
   app.delete('/api/orders/:id', asyncHandler(async (req: any, res: any) => {
@@ -825,6 +965,204 @@ async function startServer() {
     }
     await p.query('DELETE FROM errors');
     res.json({ success: true });
+  }));
+
+  // Coupons API
+  app.get('/api/coupons', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      return res.json(data.coupons || []);
+    }
+    const [rows] = await p.query('SELECT * FROM coupons ORDER BY createdAt DESC');
+    res.json(rows);
+  }));
+
+  app.post('/api/coupons', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    const { code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, isActive } = req.body;
+    if (!p) {
+      const data = await getJsonData();
+      const newCoupon = { id: Date.now(), code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, usedCount: 0, isActive: isActive ?? true, createdAt: new Date().toISOString() };
+      data.coupons = [...(data.coupons || []), newCoupon];
+      await saveJsonData(data);
+      return res.json(newCoupon);
+    }
+    const [result]: any = await p.query('INSERT INTO coupons (code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, isActive ?? true]);
+    res.json({ id: result.insertId, code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, usedCount: 0, isActive: isActive ?? true });
+  }));
+
+  app.put('/api/coupons/:id', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    const { code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, isActive } = req.body;
+    if (!p) {
+      const data = await getJsonData();
+      const index = data.coupons.findIndex((c: any) => c.id == req.params.id);
+      if (index !== -1) {
+        data.coupons[index] = { ...data.coupons[index], code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, isActive };
+        await saveJsonData(data);
+        return res.json(data.coupons[index]);
+      }
+      return res.status(404).json({ error: 'Coupon not found' });
+    }
+    await p.query('UPDATE coupons SET code = ?, type = ?, value = ?, minOrder = ?, maxDiscount = ?, expiryDate = ?, usageLimit = ?, isActive = ? WHERE id = ?', [code, type, value, minOrder, maxDiscount, expiryDate, usageLimit, isActive, req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/coupons/:id', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      data.coupons = data.coupons.filter((c: any) => c.id != req.params.id);
+      await saveJsonData(data);
+      return res.json({ success: true });
+    }
+    await p.query('DELETE FROM coupons WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.get('/api/coupons/validate/:code', asyncHandler(async (req: any, res: any) => {
+    const { code } = req.params;
+    const p = await getPool();
+    let coupon;
+    if (!p) {
+      const data = await getJsonData();
+      coupon = (data.coupons || []).find((c: any) => c.code === code && c.isActive);
+    } else {
+      const [rows]: any = await p.query('SELECT * FROM coupons WHERE code = ? AND isActive = TRUE', [code]);
+      coupon = rows[0];
+    }
+
+    if (!coupon) return res.status(404).json({ error: 'Invalid coupon code' });
+    
+    if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
+      return res.status(400).json({ error: 'Coupon has expired' });
+    }
+    
+    if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
+      return res.status(400).json({ error: 'Coupon usage limit reached' });
+    }
+
+    res.json(coupon);
+  }));
+
+  // Customers API
+  app.get('/api/customers', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      return res.json(data.customers || []);
+    }
+    const [rows] = await p.query('SELECT id, name, phone, email, points, isActive, createdAt FROM customers');
+    res.json(rows);
+  }));
+
+  app.put('/api/customers/:id', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    const { name, phone, email, points, isActive } = req.body;
+    if (!p) {
+      const data = await getJsonData();
+      const index = data.customers.findIndex((c: any) => c.id == req.params.id);
+      if (index !== -1) {
+        data.customers[index] = { ...data.customers[index], name, phone, email, points, isActive };
+        await saveJsonData(data);
+        return res.json(data.customers[index]);
+      }
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    await p.query('UPDATE customers SET name = ?, phone = ?, email = ?, points = ?, isActive = ? WHERE id = ?', [name, phone, email, points, isActive, req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/customers/:id', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      data.customers = data.customers.filter((c: any) => c.id != req.params.id);
+      await saveJsonData(data);
+      return res.json({ success: true });
+    }
+    await p.query('DELETE FROM customers WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.post('/api/customers/register', asyncHandler(async (req: any, res: any) => {
+    const { name, phone, email, password } = req.body;
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      if (data.customers?.find((c: any) => c.phone === phone)) {
+        return res.status(400).json({ error: 'Phone number already registered' });
+      }
+      const newCustomer = { id: Date.now(), name, phone, email, password: hashedPassword, points: 0, isActive: true, createdAt: new Date().toISOString() };
+      data.customers = [...(data.customers || []), newCustomer];
+      await saveJsonData(data);
+      const { password: _, ...customerWithoutPassword } = newCustomer;
+      return res.json(customerWithoutPassword);
+    }
+    try {
+      const [result]: any = await p.query('INSERT INTO customers (name, phone, email, password) VALUES (?, ?, ?, ?)', [name, phone, email, hashedPassword]);
+      res.json({ id: result.insertId, name, phone, email, points: 0, isActive: true });
+    } catch (error: any) {
+      if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Phone number already registered' });
+      throw error;
+    }
+  }));
+
+  app.post('/api/customers/login', asyncHandler(async (req: any, res: any) => {
+    const { phone, password } = req.body;
+    const p = await getPool();
+    let customer;
+    if (!p) {
+      const data = await getJsonData();
+      customer = data.customers?.find((c: any) => c.phone === phone);
+    } else {
+      const [rows]: any = await p.query('SELECT * FROM customers WHERE phone = ?', [phone]);
+      customer = rows[0];
+    }
+
+    if (!customer || !customer.isActive) return res.status(401).json({ error: 'Invalid credentials' });
+    
+    if (customer.password) {
+      const match = await bcrypt.compare(password, customer.password);
+      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const { password: _, ...customerWithoutPassword } = customer;
+    res.json({ token: 'mock-customer-token-' + customer.id, user: customerWithoutPassword });
+  }));
+
+  app.get('/api/customers/orders', asyncHandler(async (req: any, res: any) => {
+    const { phone } = req.query;
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      const orders = (data.orders || []).filter((o: any) => o.customerPhone === phone);
+      return res.json(orders);
+    }
+    const [rows]: any = await p.query('SELECT * FROM orders WHERE customerPhone = ? ORDER BY createdAt DESC', [phone]);
+    res.json(rows);
+  }));
+
+  app.get('/api/customers/profile', asyncHandler(async (req: any, res: any) => {
+    const { phone } = req.query;
+    const p = await getPool();
+    if (!p) {
+      const data = await getJsonData();
+      const customer = (data.customers || []).find((c: any) => c.phone === phone);
+      if (customer) {
+        const { password: _, ...customerWithoutPassword } = customer;
+        return res.json(customerWithoutPassword);
+      }
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    const [rows]: any = await p.query('SELECT id, name, phone, email, points, isActive, createdAt FROM customers WHERE phone = ?', [phone]);
+    if (rows.length > 0) {
+      res.json(rows[0]);
+    } else {
+      res.status(404).json({ error: 'Customer not found' });
+    }
   }));
 
   // Staff API
@@ -988,8 +1326,8 @@ async function startServer() {
     });
   }
 
-  const PORT = process.env.PORT || 3000;
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  const PORT = 3000;
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

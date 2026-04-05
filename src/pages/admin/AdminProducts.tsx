@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { Plus, Edit2, Trash2, Image as ImageIcon, Check, X, Search, Filter, Building2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+import ConfirmModal from '../../components/ConfirmModal';
 
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -39,6 +40,8 @@ const AdminProducts: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -106,16 +109,17 @@ const AdminProducts: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm(t('admin.product_delete_confirm'))) {
-      try {
-        await api.deleteProduct(id);
-        toast.success(t('admin.product_deleted'));
-        fetchData();
-      } catch (error) {
-        console.error("Error deleting product:", error);
-        toast.error(t('common.error'));
-      }
+  const handleDelete = async () => {
+    if (!productToDelete) return;
+    try {
+      await api.deleteProduct(productToDelete);
+      toast.success(t('admin.product_deleted'));
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting product:", error);
+      toast.error(t('common.error'));
+    } finally {
+      setProductToDelete(null);
     }
   };
 
@@ -150,18 +154,26 @@ const AdminProducts: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className={`flex flex-wrap items-center justify-between gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
+      <ConfirmModal
+        isOpen={isConfirmOpen}
+        onClose={() => { setIsConfirmOpen(false); setProductToDelete(null); }}
+        onConfirm={handleDelete}
+        title={t('common.delete')}
+        message={t('admin.product_delete_confirm')}
+        type="danger"
+      />
+      <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 ${isRTL ? 'sm:flex-row-reverse' : ''}`}>
         <h2 className="text-2xl font-bold text-gray-900">{t('admin.products')}</h2>
         <button
           onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all"
+          className="flex items-center justify-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all"
         >
           <Plus size={20} />
           {t('admin.add_product')}
         </button>
       </div>
 
-      <div className={`flex flex-col md:flex-row gap-4 ${isRTL ? 'md:flex-row-reverse' : ''}`}>
+      <div className={`flex flex-col lg:flex-row gap-4 ${isRTL ? 'lg:flex-row-reverse' : ''}`}>
         <div className="relative flex-1">
           <Search className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
           <input
@@ -172,32 +184,34 @@ const AdminProducts: React.FC = () => {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <div className="relative">
-          <Filter className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
-          <select
-            className={`${isRTL ? 'pr-12 pl-8' : 'pl-12 pr-8'} py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white min-w-[150px]`}
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-          >
-            <option value="all">{t('admin.all_categories')}</option>
-            {Array.isArray(categories) && categories.map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="relative">
-          <Building2 className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
-          <select
-            className={`${isRTL ? 'pr-12 pl-8' : 'pl-12 pr-8'} py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white min-w-[150px] disabled:bg-gray-50 disabled:text-gray-500`}
-            value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            disabled={user?.role !== 'admin'}
-          >
-            {user?.role === 'admin' && <option value="all">جميع الفروع (عام)</option>}
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1 sm:w-48">
+            <Filter className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+            <select
+              className={`w-full ${isRTL ? 'pr-12 pl-8' : 'pl-12 pr-8'} py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white disabled:bg-gray-50`}
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              <option value="all">{t('admin.all_categories')}</option>
+              {Array.isArray(categories) && categories.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="relative flex-1 sm:w-48">
+            <Building2 className={`absolute ${isRTL ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-gray-400`} size={18} />
+            <select
+              className={`w-full ${isRTL ? 'pr-12 pl-8' : 'pl-12 pr-8'} py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500`}
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              disabled={user?.role !== 'admin'}
+            >
+              {user?.role === 'admin' && <option value="all">{t('admin.branches_all')}</option>}
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -224,7 +238,7 @@ const AdminProducts: React.FC = () => {
               </div>
               <div className={`flex justify-between items-start mb-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
                 <h3 className="font-bold text-gray-900">{product.name}</h3>
-                <span className="text-orange-600 font-bold">{product.price} {isRTL ? 'ج.م' : 'EGP'}</span>
+                <span className="text-orange-600 font-bold">{product.price} {t('common.currency')}</span>
               </div>
               <p className={`text-sm text-gray-500 mb-4 line-clamp-2 h-10 ${isRTL ? 'text-right' : 'text-left'}`}>{product.description}</p>
               <div className={`flex items-center justify-between pt-4 border-t border-gray-50 ${isRTL ? 'flex-row-reverse' : ''}`}>
@@ -237,7 +251,7 @@ const AdminProducts: React.FC = () => {
                     <Edit2 size={18} />
                   </button>
                   <button
-                    onClick={() => handleDelete(product.id)}
+                    onClick={() => { setProductToDelete(product.id); setIsConfirmOpen(true); }}
                     className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                     title={t('common.delete')}
                   >
@@ -284,9 +298,9 @@ const AdminProducts: React.FC = () => {
                   <X size={24} />
                 </button>
               </div>
-              <form onSubmit={handleSubmit} className={`p-6 space-y-4 ${isRTL ? 'text-right' : 'text-left'}`}>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
+              <form onSubmit={handleSubmit} className={`p-6 space-y-4 max-h-[80vh] overflow-y-auto ${isRTL ? 'text-right' : 'text-left'}`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_name')}</label>
                     <input
                       required
@@ -330,9 +344,9 @@ const AdminProducts: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">المكونات (اختياري)</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_ingredients')}</label>
                   <textarea
-                    placeholder="مثال: طماطم، خس، صوص خاص..."
+                    placeholder={t('admin.product_ingredients_placeholder')}
                     className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[60px] ${isRTL ? 'text-right' : 'text-left'}`}
                     value={formData.ingredients}
                     onChange={e => setFormData({ ...formData, ingredients: e.target.value })}

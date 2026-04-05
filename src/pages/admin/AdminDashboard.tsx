@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle, UserPlus, Calculator, UtensilsCrossed, Building2 } from 'lucide-react';
+import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle, UserPlus, Calculator, UtensilsCrossed, Building2, Ticket, Users } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { api } from '../../services/api';
@@ -63,13 +63,15 @@ const AdminDashboard: React.FC = () => {
 
   const menuItems = [
     { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview'), roles: ['admin', 'staff', 'cashier', 'kitchen'] },
-    { path: '/admin/kitchen', icon: UtensilsCrossed, label: 'المطبخ', roles: ['admin', 'kitchen'] },
-    { path: '/admin/branches', icon: Building2, label: 'الفروع', roles: ['admin'] },
+    { path: '/admin/kitchen', icon: UtensilsCrossed, label: t('admin.nav_kitchen'), roles: ['admin', 'kitchen'] },
+    { path: '/admin/branches', icon: Building2, label: t('admin.nav_branches'), roles: ['admin'] },
     { path: '/admin/cashier', icon: Calculator, label: t('admin.nav_cashier'), roles: ['admin', 'cashier'] },
     { path: '/admin/orders', icon: ClipboardList, label: t('admin.nav_orders'), roles: ['admin', 'staff', 'cashier'] },
     { path: '/admin/products', icon: Package, label: t('admin.nav_products'), roles: ['admin', 'staff'] },
     { path: '/admin/categories', icon: List, label: t('admin.nav_categories'), roles: ['admin', 'staff'] },
     { path: '/admin/offers', icon: Tag, label: t('admin.nav_offers'), roles: ['admin', 'staff'] },
+    { path: '/admin/coupons', icon: Ticket, label: t('admin.nav_coupons'), roles: ['admin'] },
+    { path: '/admin/customers', icon: Users, label: t('admin.nav_customers'), roles: ['admin'] },
     { path: '/admin/staff', icon: UserPlus, label: t('admin.nav_staff'), roles: ['admin'] },
     { path: '/admin/errors', icon: AlertTriangle, label: t('admin.nav_errors'), roles: ['admin'] },
     { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings'), roles: ['admin'] },
@@ -140,7 +142,13 @@ const AdminDashboard: React.FC = () => {
             </div>
             <div className={isRTL ? 'text-left' : 'text-right'}>
               <p className="text-sm font-bold text-gray-900">{user?.email?.split('@')[0]}</p>
-              <p className="text-xs text-gray-500">{t('login.admin_role')}</p>
+              <p className="text-xs text-gray-500">
+                {user?.role === 'admin' ? t('admin.role_admin') : 
+                 user?.role === 'staff' ? t('admin.role_staff') : 
+                 user?.role === 'cashier' ? t('admin.role_cashier') : 
+                 user?.role === 'kitchen' ? t('admin.staff_role_kitchen') : 
+                 user?.role}
+              </p>
             </div>
           </div>
           <button
@@ -154,8 +162,8 @@ const AdminDashboard: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 lg:p-8">
-        <div className="max-w-5xl mx-auto">
+      <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
+        <div className="max-w-7xl mx-auto">
           <Outlet />
         </div>
       </main>

@@ -534,6 +534,107 @@ export const api = {
     }
     return data;
   },
+
+  // Coupons
+  async getCoupons() {
+    const res = await fetch('/api/coupons');
+    return res.json();
+  },
+  async addCoupon(coupon: any) {
+    const res = await fetch('/api/coupons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(coupon)
+    });
+    return res.json();
+  },
+  async updateCoupon(id: string | number, coupon: any) {
+    const res = await fetch(`/api/coupons/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(coupon)
+    });
+    return res.json();
+  },
+  async deleteCoupon(id: string | number) {
+    const res = await fetch(`/api/coupons/${id}`, {
+      method: 'DELETE'
+    });
+    return res.json();
+  },
+  async validateCoupon(code: string) {
+    const res = await fetch(`/api/coupons/validate/${code}`);
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Invalid coupon');
+    }
+    return res.json();
+  },
+
+  // Customers
+  async getCustomers() {
+    const res = await fetch('/api/customers');
+    return res.json();
+  },
+  async updateCustomer(id: string | number, customer: any) {
+    const res = await fetch(`/api/customers/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(customer)
+    });
+    return res.json();
+  },
+  async deleteCustomer(id: string | number) {
+    const res = await fetch(`/api/customers/${id}`, {
+      method: 'DELETE'
+    });
+    return res.json();
+  },
+  async registerCustomer(customer: any) {
+    const res = await fetch('/api/customers/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(customer)
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Registration failed');
+    }
+    return res.json();
+  },
+  async loginCustomer(credentials: any) {
+    const res = await fetch('/api/customers/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials)
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Login failed');
+    }
+    return res.json();
+  },
+  async getCustomerOrders(phone: string) {
+    const res = await fetch(`/api/customers/orders?phone=${phone}`);
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to fetch customer orders');
+    }
+    const data = await res.json();
+    return (Array.isArray(data) ? data : []).map((order: any) => ({
+      ...order,
+      items: typeof order.items === 'string' ? JSON.parse(order.items) : order.items
+    }));
+  },
+  async getCustomerProfile(phone: string) {
+    const res = await fetch(`/api/customers/profile?phone=${phone}`);
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to fetch customer profile');
+    }
+    return res.json();
+  },
+
   async getPwaSettings() {
     const res = await fetch('/api/settings/pwa');
     const text = await res.text();
