@@ -34,6 +34,7 @@ interface Order {
   items: { name: string; quantity: number; price: number }[];
   total: number;
   type: string;
+  paymentMethod?: string;
   branchId?: number;
   createdAt: string;
 }
@@ -60,7 +61,9 @@ export default function AdminCashier() {
     name: '',
     phone: '',
     address: '',
-    type: 'takeaway' as 'takeaway' | 'delivery'
+    tableNumber: '',
+    type: 'takeaway' as 'takeaway' | 'delivery' | 'dine_in',
+    paymentMethod: 'cash'
   });
   const [loading, setLoading] = useState(false);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
@@ -83,6 +86,19 @@ export default function AdminCashier() {
 
   useEffect(() => {
     fetchBranches();
+
+    // Keyboard shortcuts
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        handleSubmitOrder();
+      }
+      if (e.key === 'Escape') {
+        if (showHistory) setShowHistory(false);
+        else if (isConfirmOpen) setIsConfirmOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const fetchSettings = async () => {
@@ -99,7 +115,11 @@ export default function AdminCashier() {
       const data = await api.getBranches();
       const safeBranches = Array.isArray(data) ? data : [];
       setBranches(safeBranches);
-      if (safeBranches.length > 0) {
+      
+      // If user is not admin, lock to their branch
+      if (user?.role !== 'admin' && user?.branchId) {
+        setSelectedBranchId(user.branchId);
+      } else if (safeBranches.length > 0 && !selectedBranchId) {
         setSelectedBranchId(safeBranches[0].id);
       }
     } catch (error) {
@@ -155,6 +175,16 @@ export default function AdminCashier() {
     setCart(prev => prev.filter(item => item.id !== id));
   };
 
+  const clearCart = () => {
+    setCart([]);
+    setCustomerInfo({ name: '', phone: '', address: '', tableNumber: '', type: 'takeaway', paymentMethod: 'cash' });
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCustomerData(null);
+    setRedeemPoints(false);
+    toast.success(t('cart.cleared_success'));
+  };
+
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const couponDiscount = appliedCoupon 
     ? (appliedCoupon.type === 'percentage' 
@@ -178,7 +208,7 @@ export default function AdminCashier() {
         toast.success(t('cart.customer_found'));
       } else {
         setCustomerData(null);
-        toast.info(t('cart.customer_not_found'));
+        // toast.info(t('cart.customer_not_found'));
       }
     } catch (error) {
       console.error("Error looking up customer:", error);
@@ -188,8 +218,8 @@ export default function AdminCashier() {
   };
 
   useEffect(() => {
-    if (redeemPoints && customerData && settings?.global?.pointsConfig) {
-      const { currencyPerPoint, minPointsToRedeem } = settings.global.pointsConfig;
+    if (redeemPoints && customerData && settings?.pointsConfig) {
+      const { currencyPerPoint, minPointsToRedeem } = settings.pointsConfig;
       if (customerData.points >= minPointsToRedeem) {
         const value = customerData.points * currencyPerPoint;
         setPointsValue(Math.min(value, subtotal - finalCouponDiscount));
@@ -225,7 +255,9 @@ export default function AdminCashier() {
       const orderData = {
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone,
-        address: customerInfo.address || t('admin.cashier_default_address'),
+        address: customerInfo.type === 'dine_in' 
+          ? `${t('admin.cashier_dine_in')} - ${t('admin.cashier_table_number')}: ${customerInfo.tableNumber}`
+          : (customerInfo.address || t('admin.cashier_default_address')),
         items: cart.map(item => ({
           id: item.id,
           name: item.name,
@@ -239,7 +271,7 @@ export default function AdminCashier() {
         pointsValue: pointsDiscount,
         total,
         type: customerInfo.type,
-        paymentMethod: 'cash',
+        paymentMethod: customerInfo.paymentMethod,
         status: 'completed',
         branchId: selectedBranchId
       };
@@ -253,7 +285,7 @@ export default function AdminCashier() {
       setIsConfirmOpen(true);
 
       setCart([]);
-      setCustomerInfo({ name: '', phone: '', address: '', type: 'takeaway' });
+      setCustomerInfo({ name: '', phone: '', address: '', tableNumber: '', type: 'takeaway', paymentMethod: 'cash' });
       setAppliedCoupon(null);
       setCouponCode('');
       setCustomerData(null);
@@ -342,36 +374,51 @@ export default function AdminCashier() {
         </div>
 
         <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-4">
-          {filteredProducts.map(product => (
-            <motion.button
-              key={product.id}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => addToCart(product)}
-              className={`bg-white p-3 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all ${isRTL ? 'text-right' : 'text-left'} flex flex-col h-full`}
-            >
-              {product.imageUrl && (
-                <img
-                  src={product.imageUrl}
-                  alt={product.name}
-                  className="w-full h-32 object-cover rounded-xl mb-3"
-                  referrerPolicy="no-referrer"
-                />
-              )}
-              <h3 className="font-bold text-gray-800 mb-1 line-clamp-1">{product.name}</h3>
-              <p className="text-orange-600 font-bold mt-auto">{product.price} {t('admin.cashier_receipt_currency')}</p>
-            </motion.button>
-          ))}
+          {filteredProducts.map(product => {
+            const cartItem = cart.find(item => item.id === product.id);
+            return (
+              <motion.button
+                key={product.id}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => addToCart(product)}
+                className={`bg-white p-3 rounded-2xl border ${cartItem ? 'border-orange-500 ring-1 ring-orange-500' : 'border-gray-100'} shadow-sm hover:shadow-md transition-all ${isRTL ? 'text-right' : 'text-left'} flex flex-col h-full relative`}
+              >
+                {cartItem && (
+                  <div className="absolute top-2 right-2 bg-orange-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center z-10">
+                    {cartItem.quantity}
+                  </div>
+                )}
+                {product.imageUrl && (
+                  <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    className="w-full h-32 object-cover rounded-xl mb-3"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <h3 className="font-bold text-gray-800 mb-1 line-clamp-1">{product.name}</h3>
+                <p className="text-orange-600 font-bold mt-auto">{product.price} {t('admin.cashier_receipt_currency')}</p>
+              </motion.button>
+            );
+          })}
         </div>
       </div>
 
       {/* Cart Section */}
       <div className="w-96 bg-white rounded-3xl border border-gray-100 shadow-xl flex flex-col overflow-hidden">
-        <div className="p-6 border-b border-gray-50">
+        <div className="p-6 border-b border-gray-50 flex justify-between items-center">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <ShoppingCart className="w-6 h-6 text-orange-500" />
             {t('admin.cashier_title')}
           </h2>
+          <button 
+            onClick={clearCart}
+            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+            title={t('admin.cashier_clear_cart')}
+          >
+            <Trash2 size={20} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -461,7 +508,7 @@ export default function AdminCashier() {
               </button>
             </div>
 
-            {customerData && settings?.global?.features?.enablePoints && (
+            {customerData && settings?.features?.enablePoints && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -478,14 +525,14 @@ export default function AdminCashier() {
                       className="sr-only peer"
                       checked={redeemPoints}
                       onChange={(e) => setRedeemPoints(e.target.checked)}
-                      disabled={customerData.points < (settings?.global?.pointsConfig?.minPointsToRedeem || 0)}
+                      disabled={customerData.points < (settings?.pointsConfig?.minPointsToRedeem || 0)}
                     />
                     <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600"></div>
                   </label>
                 </div>
-                {customerData.points < (settings?.global?.pointsConfig?.minPointsToRedeem || 0) ? (
+                {customerData.points < (settings?.pointsConfig?.minPointsToRedeem || 0) ? (
                   <p className={`text-[10px] text-orange-600 ${isRTL ? 'text-right' : 'text-left'}`}>
-                    {t('admin.points_min_required').replace('{min}', settings?.global?.pointsConfig?.minPointsToRedeem)}
+                    {t('admin.points_min_required').replace('{min}', settings?.pointsConfig?.minPointsToRedeem)}
                   </p>
                 ) : (
                   <p className={`text-[10px] text-orange-600 ${isRTL ? 'text-right' : 'text-left'}`}>
@@ -494,20 +541,33 @@ export default function AdminCashier() {
                 )}
               </motion.div>
             )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCustomerInfo(prev => ({ ...prev, type: 'takeaway' }))}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${customerInfo.type === 'takeaway' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
-              >
-                {t('admin.kitchen_takeaway')}
-              </button>
-              <button
-                onClick={() => setCustomerInfo(prev => ({ ...prev, type: 'delivery' }))}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${customerInfo.type === 'delivery' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
-              >
-                {t('admin.kitchen_delivery')}
-              </button>
+            
+            <div className="flex flex-col gap-2">
+              <label className={`text-xs font-bold text-gray-500 ${isRTL ? 'text-right' : ''}`}>
+                {t('admin.cashier_order_type')}
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCustomerInfo(prev => ({ ...prev, type: 'takeaway' }))}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${customerInfo.type === 'takeaway' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
+                >
+                  {t('admin.kitchen_takeaway')}
+                </button>
+                <button
+                  onClick={() => setCustomerInfo(prev => ({ ...prev, type: 'delivery' }))}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${customerInfo.type === 'delivery' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
+                >
+                  {t('admin.kitchen_delivery')}
+                </button>
+                <button
+                  onClick={() => setCustomerInfo(prev => ({ ...prev, type: 'dine_in' }))}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${customerInfo.type === 'dine_in' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
+                >
+                  {t('admin.cashier_dine_in')}
+                </button>
+              </div>
             </div>
+
             {customerInfo.type === 'delivery' && (
               <div className="relative">
                 <MapPin className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4`} />
@@ -520,9 +580,42 @@ export default function AdminCashier() {
                 />
               </div>
             )}
+
+            {customerInfo.type === 'dine_in' && (
+              <div className="relative">
+                <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4`} />
+                <input
+                  type="text"
+                  placeholder={t('admin.cashier_table_number')}
+                  className={`w-full ${isRTL ? 'pr-9 pl-3' : 'pl-9 pr-3'} py-2 rounded-xl border border-gray-200 text-sm focus:ring-2 focus:ring-orange-500 outline-none`}
+                  value={customerInfo.tableNumber}
+                  onChange={(e) => setCustomerInfo(prev => ({ ...prev, tableNumber: e.target.value }))}
+                />
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <label className={`text-xs font-bold text-gray-500 ${isRTL ? 'text-right' : ''}`}>
+                {t('admin.cashier_payment_method')}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {settings?.paymentMethods && Object.entries(settings.paymentMethods).map(([method, enabled]) => {
+                  if (!enabled) return null;
+                  return (
+                    <button
+                      key={method}
+                      onClick={() => setCustomerInfo(prev => ({ ...prev, paymentMethod: method }))}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all ${customerInfo.paymentMethod === method ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
+                    >
+                      {t(`cart.${method}`)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          {settings?.global?.features?.enableCoupons && (
+          {settings?.features?.enableCoupons && (
             <div className="space-y-2">
               <label className={`block text-sm font-bold text-gray-700 ${isRTL ? 'text-right' : ''}`}>
                 {t('admin.nav_coupons')}
@@ -605,7 +698,7 @@ export default function AdminCashier() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col"
+              className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
             >
               <div className="p-6 border-b border-gray-100 flex justify-between items-center">
                 <h3 className="text-xl font-bold">{t('admin.cashier_recent_orders')}</h3>
@@ -614,22 +707,42 @@ export default function AdminCashier() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {recentOrders.map(order => (
-                  <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                    <div className={isRTL ? 'text-right' : 'text-left'}>
-                      <p className="font-bold text-gray-900">{order.customerName}</p>
-                      <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleString(isRTL ? 'ar-EG' : 'en-US')}</p>
-                      <p className="text-sm font-bold text-orange-600 mt-1">{order.total} {t('admin.cashier_receipt_currency')}</p>
+                {recentOrders.map(order => {
+                  const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+                  return (
+                    <div key={order.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className={isRTL ? 'text-right' : 'text-left'}>
+                          <p className="font-bold text-gray-900">{order.customerName}</p>
+                          <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleString(isRTL ? 'ar-EG' : 'en-US')}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => printReceipt({ ...order, items })}
+                            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold hover:bg-gray-50 transition-all"
+                          >
+                            <Printer size={18} />
+                            {t('admin.cashier_print')}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-gray-100">
+                        <div className="space-y-1">
+                          {Array.isArray(items) && items.map((item: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-xs text-gray-600">
+                              <span>{item.name} x{item.quantity}</span>
+                              <span>{item.price * item.quantity} {t('admin.cashier_receipt_currency')}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-gray-50 flex justify-between font-bold text-sm text-orange-600">
+                          <span>{t('admin.cashier_total')}</span>
+                          <span>{order.total} {t('admin.cashier_receipt_currency')}</span>
+                        </div>
+                      </div>
                     </div>
-                    <button 
-                      onClick={() => printReceipt(order)}
-                      className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold hover:bg-gray-50 transition-all"
-                    >
-                      <Printer size={18} />
-                      {t('admin.cashier_print')}
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
                 {recentOrders.length === 0 && (
                   <p className="text-center text-gray-400 py-12">{t('admin.cashier_no_recent_orders')}</p>
                 )}

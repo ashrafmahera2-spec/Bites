@@ -165,6 +165,17 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
     return matchesFilter && matchesSearch;
   });
 
+  const getParsedItems = (items: any) => {
+    if (typeof items === 'string') {
+      try {
+        return JSON.parse(items);
+      } catch (e) {
+        return [];
+      }
+    }
+    return Array.isArray(items) ? items : [];
+  };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <ConfirmModal
@@ -229,75 +240,77 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
 
       <div className="grid grid-cols-1 gap-6">
         {filteredOrders.length > 0 ? (
-          filteredOrders.map(order => (
-            <motion.div
-              layout
-              key={order.id}
-              className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden"
-            >
-              <div className="p-4 sm:p-6 border-b border-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-2xl shrink-0 ${
-                    order.status === 'pending' ? 'bg-orange-50 text-orange-600' :
-                    order.status === 'in-progress' ? 'bg-blue-50 text-blue-600' :
-                    order.status === 'ready' ? 'bg-indigo-50 text-indigo-600' :
-                    order.status === 'completed' ? 'bg-green-50 text-green-600' :
-                    'bg-red-50 text-red-600'
-                  }`}>
-                    {order.status === 'pending' ? <Clock size={24} /> :
-                     order.status === 'in-progress' ? <Clock size={24} className="animate-pulse" /> :
-                     order.status === 'ready' ? <CheckCircle size={24} /> :
-                     order.status === 'completed' ? <CheckCircle size={24} /> :
-                     <XCircle size={24} />}
-                  </div>
-                  <div className={isRTL ? 'text-right' : 'text-left'}>
-                    <h3 className="font-bold text-gray-900 line-clamp-1">{order.customerName}</h3>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
-                      <span className="flex items-center gap-1"><Building2 size={12} /> {branches.find(b => b.id === order.branchId)?.name || t('common.unspecified')}</span>
-                      <span className="flex items-center gap-1"><Phone size={12} /> {order.customerPhone}</span>
-                      <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(order.createdAt).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+          filteredOrders.map(order => {
+            const items = getParsedItems(order.items);
+            return (
+              <motion.div
+                layout
+                key={order.id}
+                className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden"
+              >
+                <div className="p-4 sm:p-6 border-b border-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className={`p-3 rounded-2xl shrink-0 ${
+                      order.status === 'pending' ? 'bg-orange-50 text-orange-600' :
+                      order.status === 'in-progress' ? 'bg-blue-50 text-blue-600' :
+                      order.status === 'ready' ? 'bg-indigo-50 text-indigo-600' :
+                      order.status === 'completed' ? 'bg-green-50 text-green-600' :
+                      'bg-red-50 text-red-600'
+                    }`}>
+                      {order.status === 'pending' ? <Clock size={24} /> :
+                       order.status === 'in-progress' ? <Clock size={24} className="animate-pulse" /> :
+                       order.status === 'ready' ? <CheckCircle size={24} /> :
+                       order.status === 'completed' ? <CheckCircle size={24} /> :
+                       <XCircle size={24} />}
+                    </div>
+                    <div className={isRTL ? 'text-right' : 'text-left'}>
+                      <h3 className="font-bold text-gray-900 line-clamp-1">{order.customerName}</h3>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
+                        <span className="flex items-center gap-1"><Building2 size={12} /> {branches.find(b => b.id === order.branchId)?.name || t('common.unspecified')}</span>
+                        <span className="flex items-center gap-1"><Phone size={12} /> {order.customerPhone}</span>
+                        <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(order.createdAt).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                
-                <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-4 sm:pt-0">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => updateStatus(order.id, 'completed')}
-                      className="px-3 py-1.5 bg-green-50 text-green-600 rounded-xl text-xs sm:text-sm font-bold hover:bg-green-100 transition-all"
-                    >
-                      {t('admin.orders_mark_completed')}
-                    </button>
-                    <button
-                      onClick={() => updateStatus(order.id, 'cancelled')}
-                      className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs sm:text-sm font-bold hover:bg-red-100 transition-all"
-                    >
-                      {t('admin.orders_mark_cancelled')}
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => copyOrderDetails(order)}
-                      className="p-2 text-gray-400 hover:text-green-600 transition-colors"
-                      title={t('admin.orders_copy_details')}
-                    >
-                      <Copy size={18} />
-                    </button>
-                    <button
-                      onClick={() => printInvoice(order)}
-                      className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-                      title={t('admin.orders_print_invoice')}
-                    >
-                      <Printer size={18} />
-                    </button>
-                    <button
-                      onClick={() => setSelectedOrder(order)}
-                      className="p-2 text-gray-400 hover:text-orange-600 transition-colors"
-                      title={t('admin.orders_view_details')}
-                    >
-                      <Eye size={18} />
-                    </button>
-                    <button
+                  
+                  <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-4 sm:pt-0">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => updateStatus(order.id, 'completed')}
+                        className="px-3 py-1.5 bg-green-50 text-green-600 rounded-xl text-xs sm:text-sm font-bold hover:bg-green-100 transition-all"
+                      >
+                        {t('admin.orders_mark_completed')}
+                      </button>
+                      <button
+                        onClick={() => updateStatus(order.id, 'cancelled')}
+                        className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs sm:text-sm font-bold hover:bg-red-100 transition-all"
+                      >
+                        {t('admin.orders_mark_cancelled')}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => copyOrderDetails({ ...order, items })}
+                        className="p-2 text-gray-400 hover:text-green-600 transition-colors"
+                        title={t('admin.orders_copy_details')}
+                      >
+                        <Copy size={18} />
+                      </button>
+                      <button
+                        onClick={() => printInvoice({ ...order, items })}
+                        className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                        title={t('admin.orders_print_invoice')}
+                      >
+                        <Printer size={18} />
+                      </button>
+                      <button
+                        onClick={() => setSelectedOrder({ ...order, items })}
+                        className="p-2 text-gray-400 hover:text-orange-600 transition-colors"
+                        title={t('admin.orders_view_details')}
+                      >
+                        <Eye size={18} />
+                      </button>
+                      <button
                       onClick={() => { setOrderToDelete(order.id); setIsConfirmOpen(true); }}
                       className="p-2 text-gray-400 hover:text-red-600 transition-colors"
                       title={t('admin.orders_delete')}
@@ -374,8 +387,9 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                 </div>
               </div>
             </motion.div>
-          ))
-        ) : (
+          );
+        })
+      ) : (
           <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200">
             <ClipboardList size={48} className="text-gray-200 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-gray-400">{t('admin.orders_no_orders')}</h3>

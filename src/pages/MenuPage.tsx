@@ -3,9 +3,10 @@ import { api } from '../services/api';
 import Navbar from '../components/Navbar';
 import MenuLayout from '../components/MenuLayout';
 import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle, UtensilsCrossed, Building2, Clock } from 'lucide-react';
+import { Plus, Minus, ShoppingBag, Search, X, AlertCircle, MessageCircle, UtensilsCrossed, Building2, Clock, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -55,6 +56,7 @@ const MenuPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { addItem, items, updateQuantity, branchId, setBranchId } = useCart();
+  const { isCustomer } = useAuth();
   const { t, isRTL } = useLanguage();
 
   const activeBranch = React.useMemo(() => {
@@ -219,6 +221,27 @@ const MenuPage: React.FC = () => {
                 {t('menu.closed_desc')} {settings?.openingHours?.start} - {settings?.openingHours?.end}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Login Required Notice */}
+      {settings?.features?.requireLogin && !isCustomer && !loading && (
+        <div className="max-w-7xl mx-auto px-4 mt-4">
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-2xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <User className="w-6 h-6 shrink-0" />
+              <div>
+                <p className="font-bold">{t('login.required_for_checkout') || 'Login Required'}</p>
+                <p className="text-sm opacity-90">{t('login.required_subtitle') || 'Please login to enjoy our full features and points system'}</p>
+              </div>
+            </div>
+            <Link 
+              to="/login" 
+              className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all whitespace-nowrap"
+            >
+              {t('nav.login')}
+            </Link>
           </div>
         </div>
       )}

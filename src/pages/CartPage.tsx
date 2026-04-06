@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X, Building2, Printer } from 'lucide-react';
 import { api } from '../services/api';
@@ -53,6 +54,7 @@ import { printOrder } from '../lib/printUtils';
 const CartPage: React.FC = () => {
   const { items, updateQuantity, removeItem, total, clearCart, branchId, setBranchId } = useCart();
   const { t, isRTL, language } = useLanguage();
+  const { user, isCustomer } = useAuth();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery');
@@ -91,13 +93,29 @@ const CartPage: React.FC = () => {
     : 0;
   const finalDiscount = appliedCoupon?.maxDiscount ? Math.min(discount, appliedCoupon.maxDiscount) : discount;
   
-  const pointsDiscount = usePoints && customerData && settings?.global?.points
-    ? Math.min(subtotal - finalDiscount, customerData.points * settings.global.points.redemptionRate)
+  const pointsDiscount = usePoints && customerData && settings?.pointsConfig
+    ? Math.min(subtotal - finalDiscount, customerData.points * settings.pointsConfig.currencyPerPoint)
+    : 0;
+
+  const pointsUsed = usePoints && customerData && settings?.pointsConfig
+    ? Math.min(customerData.points, Math.ceil(pointsDiscount / settings.pointsConfig.currencyPerPoint))
     : 0;
 
   const finalTotal = Math.max(0, subtotal - finalDiscount - pointsDiscount + activeDeliveryFee);
 
   const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
+
+  useEffect(() => {
+    if (isCustomer && user) {
+      setCustomerInfo(prev => ({
+        ...prev,
+        name: user.name || '',
+        phone: user.phone || '',
+        address: user.address || prev.address
+      }));
+      setCustomerData(user);
+    }
+  }, [isCustomer, user]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -203,12 +221,18 @@ const CartPage: React.FC = () => {
   };
 
   const handleOrder = async () => {
+    if (settings?.features?.requireLogin && !isCustomer) {
+      toast.error(t('login.required_for_checkout') || 'Please login to complete your order');
+      window.location.href = '/login?redirect=/cart';
+      return;
+    }
+
     if (!validateForm()) {
       toast.error(t('cart.validation_error'));
       return;
     }
 
-    const isWhatsApp = settings?.global?.features?.orderMethod === 'whatsapp';
+    const isWhatsApp = settings?.features?.orderMethod === 'whatsapp';
     
     setIsSubmitting(true);
     try {
@@ -221,6 +245,8 @@ const CartPage: React.FC = () => {
         subtotal,
         discount: finalDiscount,
         pointsDiscount,
+        pointsUsed,
+        pointsValue: pointsDiscount,
         couponCode: appliedCoupon?.code,
         total: finalTotal,
         paymentMethod,
@@ -409,7 +435,7 @@ const CartPage: React.FC = () => {
 
               {/* Customer Info */}
               <div className="space-y-3">
-                {settings?.global?.features?.enablePoints && !customerData && (
+                {settings?.features?.enablePoints && !customerData && (
                   <div className="flex gap-2">
                     <input
                       type="tel"
@@ -596,7 +622,7 @@ const CartPage: React.FC = () => {
 
               {/* Summary */}
               <div className="pt-4 border-t border-gray-100 space-y-3">
-                {settings?.global?.features?.enableCoupons && (
+                {settings?.features?.enableCoupons && (
                   <div className="space-y-2">
                     <p className="text-sm font-bold text-gray-700">{t('admin.nav_coupons')}</p>
                     <div className={`flex gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
@@ -628,7 +654,7 @@ const CartPage: React.FC = () => {
                   </div>
                 )}
 
-                {settings?.global?.features?.enablePoints && customerData && (
+                {settings?.features?.enablePoints && customerData && (
                   <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -642,7 +668,7 @@ const CartPage: React.FC = () => {
                       </div>
                       <button
                         onClick={() => setUsePoints(!usePoints)}
-                        disabled={customerData.points < (settings.global.points?.minPointsToRedeem || 0)}
+                        disabled={customerData.points < (settings.pointsConfig?.minPointsToRedeem || 0)}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                           usePoints ? 'bg-orange-600 text-white' : 'bg-white text-orange-600 border border-orange-200'
                         } disabled:opacity-50`}
@@ -650,9 +676,9 @@ const CartPage: React.FC = () => {
                         {usePoints ? t('common.cancel') : t('common.confirm')}
                       </button>
                     </div>
-                    {customerData.points < (settings.global.points?.minPointsToRedeem || 0) && (
+                    {customerData.points < (settings.pointsConfig?.minPointsToRedeem || 0) && (
                       <p className="text-[10px] text-orange-600 font-medium italic">
-                        * {t('admin.points_min_required').replace('{min}', settings.global.points?.minPointsToRedeem.toString())}
+                        * {t('admin.points_min_required').replace('{min}', settings.pointsConfig?.minPointsToRedeem.toString())}
                       </p>
                     )}
                   </div>
@@ -696,8 +722,8 @@ const CartPage: React.FC = () => {
                     <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <>
-                      {settings?.global?.features?.orderMethod === 'whatsapp' ? <Send size={20} /> : <CheckCircle2 size={20} />}
-                      {settings?.global?.features?.orderMethod === 'whatsapp' ? t('cart.send_whatsapp') : t('cart.confirm_order')}
+                      {settings?.features?.orderMethod === 'whatsapp' ? <Send size={20} /> : <CheckCircle2 size={20} />}
+                      {settings?.features?.orderMethod === 'whatsapp' ? t('cart.send_whatsapp') : t('cart.confirm_order')}
                     </>
                   )}
                 </button>

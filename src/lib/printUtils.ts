@@ -44,6 +44,7 @@ export const printOrder = (order: any, settings: any, t: (key: string) => string
           <p><strong>${t('admin.orders_date')}:</strong> ${new Date(order.createdAt).toLocaleString(isRTL ? 'ar-EG' : 'en-US')}</p>
           <p><strong>${t('admin.orders_customer')}:</strong> ${order.customerName}</p>
           <p><strong>${t('admin.orders_phone')}:</strong> ${order.customerPhone}</p>
+          <p><strong>${t('admin.cashier_payment_method')}:</strong> ${t(`cart.${order.paymentMethod || 'cash'}`)}</p>
           ${order.address ? `<p><strong>${t('admin.orders_address')}:</strong> ${order.address}</p>` : ''}
         </div>
         <div class="items">
