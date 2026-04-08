@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { Trash2, CheckCircle, Clock, XCircle, Phone, MapPin, Calendar, ClipboardList, Search, Eye, X, Printer, Copy, Building2 } from 'lucide-react';
+import { Trash2, CheckCircle, Clock, XCircle, Phone, MapPin, Calendar, ClipboardList, Search, Eye, X, Printer, Copy, Building2, Navigation } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { toast } from 'sonner';
@@ -28,6 +28,7 @@ interface Order {
   pointsValue?: number;
   subtotal?: number;
   discount?: number;
+  deliveryBoyId?: number;
   createdAt: string;
 }
 
@@ -47,6 +48,7 @@ const AdminOrders: React.FC = () => {
   const [selectedBranchId, setSelectedBranchId] = useState<number | 'all'>(user?.role === 'admin' ? 'all' : (user?.branchId || 'all'));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
   const [prevOrderCount, setPrevOrderCount] = useState(0);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
@@ -93,10 +95,20 @@ const AdminOrders: React.FC = () => {
     }
   };
 
+  const fetchDeliveryBoys = async () => {
+    try {
+      const staff = await api.getStaff();
+      setDeliveryBoys(staff.filter((s: any) => s.role === 'delivery' && s.isActive));
+    } catch (error) {
+      console.error("Error fetching delivery boys:", error);
+    }
+  };
+
   useEffect(() => {
     fetchOrders();
     fetchBranches();
     fetchSettings();
+    fetchDeliveryBoys();
     const interval = setInterval(fetchOrders, 10000);
     return () => clearInterval(interval);
   }, [prevOrderCount, selectedBranchId]);
@@ -152,6 +164,16 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
 
   const printInvoice = (order: Order) => {
     printOrder(order, settings, t, isRTL);
+  };
+
+  const handleAssignDelivery = async (orderId: string, deliveryBoyId: number) => {
+    try {
+      await api.assignDeliveryBoy(orderId, deliveryBoyId);
+      toast.success(t('admin.orders_delivery_assigned'));
+      fetchOrders();
+    } catch (error) {
+      toast.error(t('common.error'));
+    }
   };
 
   const safeOrders = Array.isArray(orders) ? orders : [];
@@ -220,6 +242,7 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
               { id: 'all', label: t('admin.orders_filter_all') },
               { id: 'pending', label: t('admin.orders_filter_pending') },
               { id: 'in-progress', label: t('admin.status_prep') },
+              { id: 'delivering', label: t('admin.delivery_status_delivering') },
               { id: 'ready', label: t('admin.status_ready') },
               { id: 'completed', label: t('admin.orders_filter_completed') },
               { id: 'cancelled', label: t('admin.orders_filter_cancelled') },
@@ -253,12 +276,14 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                     <div className={`p-3 rounded-2xl shrink-0 ${
                       order.status === 'pending' ? 'bg-orange-50 text-orange-600' :
                       order.status === 'in-progress' ? 'bg-blue-50 text-blue-600' :
+                      order.status === 'delivering' ? 'bg-cyan-50 text-cyan-600' :
                       order.status === 'ready' ? 'bg-indigo-50 text-indigo-600' :
                       order.status === 'completed' ? 'bg-green-50 text-green-600' :
                       'bg-red-50 text-red-600'
                     }`}>
                       {order.status === 'pending' ? <Clock size={24} /> :
                        order.status === 'in-progress' ? <Clock size={24} className="animate-pulse" /> :
+                       order.status === 'delivering' ? <Navigation size={24} className="animate-bounce" /> :
                        order.status === 'ready' ? <CheckCircle size={24} /> :
                        order.status === 'completed' ? <CheckCircle size={24} /> :
                        <XCircle size={24} />}
@@ -269,11 +294,37 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         <span className="flex items-center gap-1"><Building2 size={12} /> {branches.find(b => b.id === order.branchId)?.name || t('common.unspecified')}</span>
                         <span className="flex items-center gap-1"><Phone size={12} /> {order.customerPhone}</span>
                         <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(order.createdAt).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                        {order.deliveryBoyId && (
+                          <span className="flex items-center gap-1 bg-green-50 text-green-600 px-2 py-0.5 rounded-lg">
+                            <Navigation size={12} />
+                            {deliveryBoys.find(db => db.id === order.deliveryBoyId)?.name}
+                          </span>
+                        )}
+                        {order.type === 'delivery' && (
+                          <span className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
+                            <MapPin size={12} />
+                            {t('admin.orders_delivery_home')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                   
                   <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-4 sm:pt-0">
+                    {order.type === 'delivery' && order.status !== 'completed' && order.status !== 'cancelled' && (
+                      <div className="flex items-center gap-2">
+                        <select
+                          className={`text-xs p-1.5 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-orange-500 bg-white ${isRTL ? 'text-right' : 'text-left'}`}
+                          value={order.deliveryBoyId || ''}
+                          onChange={(e) => handleAssignDelivery(order.id, Number(e.target.value))}
+                        >
+                          <option value="">{t('admin.orders_assign_delivery')}</option>
+                          {deliveryBoys.map(db => (
+                            <option key={db.id} value={db.id}>{db.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => updateStatus(order.id, 'completed')}
@@ -444,6 +495,12 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'ready' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
                       >
                         {t('admin.status_ready')}
+                      </button>
+                      <button
+                        onClick={() => { updateStatus(selectedOrder.id, 'delivering'); setSelectedOrder({...selectedOrder, status: 'delivering'}); }}
+                        className={`py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${selectedOrder.status === 'delivering' ? 'bg-cyan-600 text-white' : 'bg-cyan-50 text-cyan-600 hover:bg-cyan-100'}`}
+                      >
+                        {t('admin.delivery_status_delivering')}
                       </button>
                       <button
                         onClick={() => { updateStatus(selectedOrder.id, 'in-progress'); setSelectedOrder({...selectedOrder, status: 'in-progress'}); }}

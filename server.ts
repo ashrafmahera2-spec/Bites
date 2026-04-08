@@ -110,6 +110,7 @@ async function saveJsonData(data: any) {
 async function getPool() {
   if (pool) return pool;
   
+  console.log('Initializing database pool...');
   try {
     const configData = await fs.readFile(CONFIG_FILE, 'utf-8');
     const config = JSON.parse(configData);
@@ -121,19 +122,24 @@ async function getPool() {
       database: config.database,
       waitForConnections: true,
       connectionLimit: 10,
-      queueLimit: 0
+      queueLimit: 0,
+      connectTimeout: 10000 // 10 seconds timeout
     });
     
     // Test connection and init tables
+    console.time('initDB');
     await initDB(pool);
+    console.timeEnd('initDB');
     
+    console.log('Database pool initialized successfully.');
     return pool;
   } catch (error: any) {
     if (error.code === 'ENOENT') {
-      console.log('Database configuration file not found. Please configure database in admin panel.');
+      console.log('Database configuration file not found. Falling back to JSON DB.');
     } else {
-      console.error('Database connection error:', error);
+      console.error('Database connection error:', error.message || error);
     }
+    pool = null; // Ensure pool is null if initialization fails
     return null;
   }
 }
@@ -190,8 +196,10 @@ async function initDB(p: Pool) {
       paymentMethod VARCHAR(50),
       screenshot TEXT,
       branchId INT,
+      deliveryBoyId INT,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (branchId) REFERENCES branches(id) ON DELETE SET NULL
+      FOREIGN KEY (branchId) REFERENCES branches(id) ON DELETE SET NULL,
+      FOREIGN KEY (deliveryBoyId) REFERENCES staff(id) ON DELETE SET NULL
     )`,
     `CREATE TABLE IF NOT EXISTS offers (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -269,6 +277,17 @@ async function initDB(p: Pool) {
     }
   } catch (error) {
     console.error('Migration error (branchId in orders):', error);
+  }
+
+  // Migration: Add deliveryBoyId to orders if it doesn't exist
+  try {
+    const [columns]: any = await p.query('SHOW COLUMNS FROM orders LIKE "deliveryBoyId"');
+    if (columns.length === 0) {
+      console.log('Adding deliveryBoyId column to orders table...');
+      await p.query('ALTER TABLE orders ADD COLUMN deliveryBoyId INT AFTER branchId');
+    }
+  } catch (error) {
+    console.error('Migration error (deliveryBoyId in orders):', error);
   }
 
   // Migration: Add branchId to staff if it doesn't exist
@@ -742,10 +761,11 @@ async function startServer() {
   }));
 
   app.get('/api/orders', asyncHandler(async (req: any, res: any) => {
-    console.log('GET /api/orders');
+    console.log(`GET /api/orders - branchId: ${req.query.branchId}`);
     const p = await getPool();
     const { branchId } = req.query;
     if (!p) {
+      console.log('Using JSON DB for orders');
       const data = await getJsonData();
       let orders = data.orders || [];
       if (branchId) {
@@ -918,10 +938,33 @@ async function startServer() {
     res.json({ success: true });
   }));
 
+  app.post('/api/orders/:id/assign-delivery', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    const { deliveryBoyId } = req.body;
+    const { id } = req.params;
+
+    if (!p) {
+      const data = await getJsonData();
+      const index = data.orders.findIndex((o: any) => o.id.toString() === id);
+      if (index !== -1) {
+        data.orders[index].deliveryBoyId = deliveryBoyId;
+        data.orders[index].status = 'delivering';
+        await saveJsonData(data);
+        return res.json({ success: true });
+      }
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    await p.query('UPDATE orders SET deliveryBoyId = ?, status = "delivering" WHERE id = ?', [deliveryBoyId, id]);
+    res.json({ success: true });
+  }));
+
   // Error Logging
   app.get('/api/errors', asyncHandler(async (req: any, res: any) => {
+    console.log('GET /api/errors');
     const p = await getPool();
     if (!p) {
+      console.log('Using JSON DB for errors');
       const data = await getJsonData();
       return res.json(data.errors || []);
     }
@@ -964,6 +1007,19 @@ async function startServer() {
       return res.json({ success: true });
     }
     await p.query('DELETE FROM errors');
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/errors/:id', asyncHandler(async (req: any, res: any) => {
+    const p = await getPool();
+    const { id } = req.params;
+    if (!p) {
+      const data = await getJsonData();
+      data.errors = (data.errors || []).filter((e: any) => e.id != id);
+      await saveJsonData(data);
+      return res.json({ success: true });
+    }
+    await p.query('DELETE FROM errors WHERE id = ?', [id]);
     res.json({ success: true });
   }));
 

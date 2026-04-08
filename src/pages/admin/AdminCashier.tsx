@@ -77,6 +77,8 @@ export default function AdminCashier() {
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
   const [redeemPoints, setRedeemPoints] = useState(false);
   const [pointsValue, setPointsValue] = useState(0);
+  const [manualDiscount, setManualDiscount] = useState<number>(0);
+  const [heldCarts, setHeldCarts] = useState<{ id: string; cart: CartItem[]; customer: any; timestamp: number }[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -182,10 +184,46 @@ export default function AdminCashier() {
     setCouponCode('');
     setCustomerData(null);
     setRedeemPoints(false);
+    setManualDiscount(0);
     toast.success(t('cart.cleared_success'));
   };
 
+  const handleHoldOrder = () => {
+    if (cart.length === 0) return;
+    const holdId = `HOLD-${Date.now()}`;
+    setHeldCarts(prev => [...prev, {
+      id: holdId,
+      cart: [...cart],
+      customer: { ...customerInfo },
+      timestamp: Date.now()
+    }]);
+    setCart([]);
+    setCustomerInfo({ name: '', phone: '', address: '', tableNumber: '', type: 'takeaway', paymentMethod: 'cash' });
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setManualDiscount(0);
+    toast.success(t('admin.cashier_order_held'));
+  };
+
+  const handleRestoreHold = (holdId: string) => {
+    const held = heldCarts.find(h => h.id === holdId);
+    if (held) {
+      setCart(held.cart);
+      setCustomerInfo(held.customer);
+      setHeldCarts(prev => prev.filter(h => h.id !== holdId));
+      toast.success(t('admin.cashier_order_restored'));
+    }
+  };
+
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  
+  // Tax & Service Calculations
+  const taxRate = settings?.taxConfig?.enableTax ? (settings.taxConfig.taxRate || 0) : 0;
+  const serviceRate = settings?.taxConfig?.enableServiceCharge ? (settings.taxConfig.serviceChargeRate || 0) : 0;
+  
+  const taxAmount = (subtotal * taxRate) / 100;
+  const serviceAmount = (subtotal * serviceRate) / 100;
+
   const couponDiscount = appliedCoupon 
     ? (appliedCoupon.type === 'percentage' 
         ? (subtotal * appliedCoupon.value / 100) 
@@ -194,7 +232,7 @@ export default function AdminCashier() {
   const finalCouponDiscount = appliedCoupon?.maxDiscount ? Math.min(couponDiscount, appliedCoupon.maxDiscount) : couponDiscount;
   
   const pointsDiscount = redeemPoints ? pointsValue : 0;
-  const total = Math.max(0, subtotal - finalCouponDiscount - pointsDiscount);
+  const total = Math.max(0, subtotal + taxAmount + serviceAmount - finalCouponDiscount - pointsDiscount - manualDiscount);
 
   const handleCustomerLookup = async () => {
     if (!customerInfo.phone || customerInfo.phone.length < 10) return;
@@ -265,10 +303,12 @@ export default function AdminCashier() {
           quantity: item.quantity
         })),
         subtotal,
-        discount: finalCouponDiscount + pointsDiscount,
+        discount: finalCouponDiscount + pointsDiscount + manualDiscount,
         couponCode: appliedCoupon?.code,
         pointsUsed: redeemPoints ? customerData?.points : 0,
         pointsValue: pointsDiscount,
+        tax: taxAmount,
+        service: serviceAmount,
         total,
         type: customerInfo.type,
         paymentMethod: customerInfo.paymentMethod,
@@ -364,13 +404,28 @@ export default function AdminCashier() {
               <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
           </select>
-          <button 
-            onClick={() => setShowHistory(true)}
-            className="p-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600"
-            title={t('admin.cashier_history_title')}
-          >
-            <History className="w-6 h-6" />
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setShowHistory(true)}
+              className="p-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 relative"
+              title={t('admin.cashier_history_title')}
+            >
+              <History className="w-6 h-6" />
+            </button>
+            {heldCarts.length > 0 && (
+              <div className="flex gap-1 overflow-x-auto max-w-[200px]">
+                {heldCarts.map(hold => (
+                  <button
+                    key={hold.id}
+                    onClick={() => handleRestoreHold(hold.id)}
+                    className="px-3 py-2 bg-orange-100 text-orange-700 rounded-xl text-xs font-bold whitespace-nowrap hover:bg-orange-200 transition-all"
+                  >
+                    {hold.customer.name || hold.id}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-4">
@@ -407,19 +462,29 @@ export default function AdminCashier() {
 
       {/* Cart Section */}
       <div className="w-96 bg-white rounded-3xl border border-gray-100 shadow-xl flex flex-col overflow-hidden">
-        <div className="p-6 border-b border-gray-50 flex justify-between items-center">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <ShoppingCart className="w-6 h-6 text-orange-500" />
-            {t('admin.cashier_title')}
-          </h2>
-          <button 
-            onClick={clearCart}
-            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-            title={t('admin.cashier_clear_cart')}
-          >
-            <Trash2 size={20} />
-          </button>
-        </div>
+          <div className="p-6 border-b border-gray-50 flex justify-between items-center">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <ShoppingCart className="w-6 h-6 text-orange-500" />
+              {t('admin.cashier_title')}
+            </h2>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleHoldOrder}
+                disabled={cart.length === 0}
+                className="p-2 text-gray-400 hover:text-orange-500 transition-colors disabled:opacity-30"
+                title={t('admin.cashier_hold_order')}
+              >
+                <History size={20} />
+              </button>
+              <button 
+                onClick={clearCart}
+                className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                title={t('admin.cashier_clear_cart')}
+              >
+                <Trash2 size={20} />
+              </button>
+            </div>
+          </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <AnimatePresence mode="popLayout">
@@ -657,6 +722,18 @@ export default function AdminCashier() {
               <span>{t('cart.subtotal')}</span>
               <span>{subtotal} {t('admin.cashier_receipt_currency')}</span>
             </div>
+            {taxAmount > 0 && (
+              <div className={`flex justify-between items-center text-sm text-gray-600 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <span>{t('admin.settings_tax_rate')} ({settings.taxConfig.taxRate}%)</span>
+                <span>{taxAmount.toFixed(2)} {t('admin.cashier_receipt_currency')}</span>
+              </div>
+            )}
+            {serviceAmount > 0 && (
+              <div className={`flex justify-between items-center text-sm text-gray-600 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <span>{t('admin.settings_service_rate')} ({settings.taxConfig.serviceChargeRate}%)</span>
+                <span>{serviceAmount.toFixed(2)} {t('admin.cashier_receipt_currency')}</span>
+              </div>
+            )}
             {appliedCoupon && (
               <div className={`flex justify-between items-center text-sm text-green-600 font-medium ${isRTL ? 'flex-row-reverse' : ''}`}>
                 <span>{t('admin.coupons_discount')} ({appliedCoupon.code})</span>
@@ -669,6 +746,18 @@ export default function AdminCashier() {
                 <span>-{pointsDiscount} {t('admin.cashier_receipt_currency')}</span>
               </div>
             )}
+            <div className={`flex justify-between items-center text-sm text-red-600 font-medium ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <span>{t('admin.cashier_manual_discount')}</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  className="w-16 p-1 border border-gray-200 rounded text-xs text-center outline-none"
+                  value={manualDiscount}
+                  onChange={(e) => setManualDiscount(Number(e.target.value))}
+                />
+                <span>{t('admin.cashier_receipt_currency')}</span>
+              </div>
+            </div>
             <div className={`flex justify-between items-center text-lg font-bold ${isRTL ? 'flex-row-reverse' : ''}`}>
               <span>{t('admin.cashier_total')}</span>
               <span className="text-orange-600">{total} {t('admin.cashier_receipt_currency')}</span>

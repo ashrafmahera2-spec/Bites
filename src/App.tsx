@@ -1,9 +1,10 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
 import { useLanguage } from './contexts/LanguageContext';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
+import { api } from './services/api';
 
 // Pages
 const MenuPage = lazy(() => import('./pages/MenuPage'));
@@ -24,6 +25,9 @@ const AdminStaff = lazy(() => import('./pages/admin/AdminStaff'));
 const AdminBranches = lazy(() => import('./pages/admin/AdminBranches'));
 const AdminCoupons = lazy(() => import('./pages/admin/AdminCoupons'));
 const AdminCustomers = lazy(() => import('./pages/admin/AdminCustomers'));
+const AdminReports = lazy(() => import('./pages/admin/AdminReports'));
+const AdminDelivery = lazy(() => import('./pages/admin/AdminDelivery'));
+const CustomerDisplay = lazy(() => import('./pages/admin/CustomerDisplay'));
 const KitchenStatus = lazy(() => import('./pages/KitchenStatus'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 
@@ -37,6 +41,55 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 export default function App() {
   const { t } = useLanguage();
+  useEffect(() => {
+    const handleError = (event: ErrorEvent | PromiseRejectionEvent) => {
+      const error = 'error' in event ? event.error : event.reason;
+      
+      // Log to server
+      api.logError({
+        message: error?.message || 'Unknown error',
+        stack: error?.stack || 'No stack trace',
+        url: window.location.href,
+        userAgent: navigator.userAgent
+      });
+
+      // Handle ChunkLoadError (common in PWAs when new version is deployed)
+      if (error?.name === 'ChunkLoadError' || error?.message?.includes('Loading chunk')) {
+        toast.error(t('common.update_available') || 'New version available. Reloading...', {
+          duration: 5000,
+          onAutoClose: () => window.location.reload()
+        });
+      }
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleError);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleError);
+    };
+  }, [t]);
+
+  useEffect(() => {
+    const handleOnline = async () => {
+      try {
+        const syncedCount = await api.syncOfflineOrders();
+        if (syncedCount && syncedCount > 0) {
+          toast.success(`Synced ${syncedCount} offline orders!`);
+        }
+      } catch (error) {
+        console.error('Sync error:', error);
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    // Initial check
+    if (navigator.onLine) handleOnline();
+    
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
   return (
     <AuthProvider>
       <CartProvider>
@@ -58,6 +111,9 @@ export default function App() {
                 <Route path="offers" element={<AdminOffers />} />
                 <Route path="coupons" element={<AdminCoupons />} />
                 <Route path="customers" element={<AdminCustomers />} />
+                <Route path="reports" element={<AdminReports />} />
+                <Route path="delivery" element={<AdminDelivery />} />
+                <Route path="display" element={<CustomerDisplay />} />
                 <Route path="errors" element={<AdminErrors />} />
                 <Route path="kitchen" element={<AdminKitchen />} />
                 <Route path="branches" element={<AdminBranches />} />

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
-import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow, Settings as SettingsIcon } from 'lucide-react';
+import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow, Settings as SettingsIcon, DollarSign, Printer, Eye } from 'lucide-react';
+import InvoicePreview from '../../components/admin/InvoicePreview';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -41,6 +42,19 @@ interface Settings {
     pointsPerCurrency: number;
     currencyPerPoint: number;
     minPointsToRedeem: number;
+  };
+  taxConfig: {
+    enableTax: boolean;
+    taxRate: number;
+    enableServiceCharge: boolean;
+    serviceChargeRate: number;
+  };
+  printSettings: {
+    invoiceSize: '58mm' | '80mm' | 'A4';
+    showLogo: boolean;
+    headerText: string;
+    footerText: string;
+    invoiceStyle: 'classic' | 'modern' | 'compact';
   };
 }
 
@@ -90,6 +104,19 @@ const AdminSettings: React.FC = () => {
       pointsPerCurrency: 1,
       currencyPerPoint: 0.1,
       minPointsToRedeem: 100
+    },
+    taxConfig: {
+      enableTax: false,
+      taxRate: 14,
+      enableServiceCharge: false,
+      serviceChargeRate: 10
+    },
+    printSettings: {
+      invoiceSize: '80mm',
+      showLogo: true,
+      headerText: '',
+      footerText: '',
+      invoiceStyle: 'classic'
     }
   });
 
@@ -560,6 +587,129 @@ const AdminSettings: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Tax & Service Settings */}
+          <div className="pt-6 border-t border-gray-50 space-y-4">
+            <h4 className={`font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <DollarSign className="text-orange-600" size={18} />
+              {t('admin.settings_tax_title')}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <label className={`flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
+                  <span className="font-medium">{t('admin.settings_enable_tax')}</span>
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 accent-orange-600"
+                    checked={settings.taxConfig?.enableTax}
+                    onChange={e => setSettings({ ...settings, taxConfig: { ...settings.taxConfig, enableTax: e.target.checked } })}
+                  />
+                </label>
+                {settings.taxConfig?.enableTax && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{t('admin.settings_tax_rate')} (%)</label>
+                    <input
+                      type="number"
+                      className={`w-full p-2 rounded-lg border border-gray-100 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                      value={settings.taxConfig.taxRate}
+                      onChange={e => setSettings({ ...settings, taxConfig: { ...settings.taxConfig, taxRate: Number(e.target.value) } })}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <label className={`flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
+                  <span className="font-medium">{t('admin.settings_enable_service')}</span>
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 accent-orange-600"
+                    checked={settings.taxConfig?.enableServiceCharge}
+                    onChange={e => setSettings({ ...settings, taxConfig: { ...settings.taxConfig, enableServiceCharge: e.target.checked } })}
+                  />
+                </label>
+                {settings.taxConfig?.enableServiceCharge && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{t('admin.settings_service_rate')} (%)</label>
+                    <input
+                      type="number"
+                      className={`w-full p-2 rounded-lg border border-gray-100 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                      value={settings.taxConfig.serviceChargeRate}
+                      onChange={e => setSettings({ ...settings, taxConfig: { ...settings.taxConfig, serviceChargeRate: Number(e.target.value) } })}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Printing Settings */}
+          <div className="pt-6 border-t border-gray-50 space-y-4">
+            <h4 className={`font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <Printer className="text-orange-600" size={18} />
+              {t('admin.settings_print_title')}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_print_size')}</label>
+                <select
+                  className={`w-full p-3 rounded-xl border border-gray-200 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                  value={settings.printSettings?.invoiceSize || '80mm'}
+                  onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, invoiceSize: e.target.value as any } })}
+                >
+                  <option value="58mm">58mm</option>
+                  <option value="80mm">80mm</option>
+                  <option value="A4">A4</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_print_style')}</label>
+                <select
+                  className={`w-full p-3 rounded-xl border border-gray-200 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                  value={settings.printSettings?.invoiceStyle || 'classic'}
+                  onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, invoiceStyle: e.target.value as any } })}
+                >
+                  <option value="classic">{t('admin.settings_print_style_classic')}</option>
+                  <option value="modern">{t('admin.settings_print_style_modern')}</option>
+                  <option value="compact">{t('admin.settings_print_style_compact')}</option>
+                </select>
+              </div>
+            </div>
+            <label className={`flex items-center gap-2 cursor-pointer ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-orange-600"
+                checked={settings.printSettings?.showLogo ?? true}
+                onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, showLogo: e.target.checked } })}
+              />
+              <span className="text-sm font-medium">{t('admin.settings_print_show_logo')}</span>
+            </label>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_print_header')}</label>
+              <textarea
+                className={`w-full p-3 rounded-xl border border-gray-200 outline-none min-h-[60px] ${isRTL ? 'text-right' : 'text-left'}`}
+                value={settings.printSettings?.headerText || ''}
+                onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, headerText: e.target.value } })}
+                placeholder={t('admin.settings_print_header_placeholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_print_footer')}</label>
+              <textarea
+                className={`w-full p-3 rounded-xl border border-gray-200 outline-none min-h-[60px] ${isRTL ? 'text-right' : 'text-left'}`}
+                value={settings.printSettings?.footerText || ''}
+                onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, footerText: e.target.value } })}
+                placeholder={t('admin.settings_print_footer_placeholder')}
+              />
+            </div>
+
+            <div className="pt-4">
+              <label className="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                <Eye size={16} />
+                {t('admin.settings_print_preview')}
+              </label>
+              <InvoicePreview settings={settings} />
+            </div>
+          </div>
         </div>
 
         {/* PWA Settings */}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle, UserPlus, Calculator, UtensilsCrossed, Building2, Ticket, Users } from 'lucide-react';
+import { LayoutDashboard, Package, List, Settings, LogOut, ClipboardList, Database, Tag, AlertTriangle, UserPlus, Calculator, UtensilsCrossed, Building2, Ticket, Users, TrendingUp, Navigation, Monitor } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { api } from '../../services/api';
@@ -63,6 +63,9 @@ const AdminDashboard: React.FC = () => {
 
   const menuItems = [
     { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview'), roles: ['admin', 'staff', 'cashier', 'kitchen'] },
+    { path: '/admin/reports', icon: TrendingUp, label: t('admin.nav_reports'), roles: ['admin'] },
+    { path: '/admin/delivery', icon: Navigation, label: t('admin.nav_delivery'), roles: ['admin', 'delivery'] },
+    { path: '/admin/display', icon: Monitor, label: t('admin.nav_display'), roles: ['admin', 'cashier'] },
     { path: '/admin/kitchen', icon: UtensilsCrossed, label: t('admin.nav_kitchen'), roles: ['admin', 'kitchen'] },
     { path: '/admin/branches', icon: Building2, label: t('admin.nav_branches'), roles: ['admin'] },
     { path: '/admin/cashier', icon: Calculator, label: t('admin.nav_cashier'), roles: ['admin', 'cashier'] },
@@ -77,6 +80,34 @@ const AdminDashboard: React.FC = () => {
     { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings'), roles: ['admin'] },
     { path: '/admin/database', icon: Database, label: t('admin.nav_database'), roles: ['admin'] },
   ];
+
+  const [offlineCount, setOfflineCount] = useState(0);
+
+  useEffect(() => {
+    const checkOffline = () => {
+      const orders = JSON.parse(localStorage.getItem('offline_orders') || '[]');
+      setOfflineCount(orders.length);
+    };
+    checkOffline();
+    const interval = setInterval(checkOffline, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSync = async () => {
+    if (!navigator.onLine) {
+      toast.error(t('common.offline_error') || 'You are offline');
+      return;
+    }
+    try {
+      const count = await api.syncOfflineOrders();
+      if (count && count > 0) {
+        toast.success(`Synced ${count} orders!`);
+        setOfflineCount(0);
+      }
+    } catch (error) {
+      toast.error('Sync failed');
+    }
+  };
 
   const filteredMenuItems = menuItems.filter(item => item.roles.includes(user?.role || ''));
 
@@ -102,6 +133,20 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         <nav className={`px-4 py-2 space-y-1 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
+          {offlineCount > 0 && (
+            <button
+              onClick={handleSync}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-medium bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all mb-2 ${isRTL ? 'flex-row-reverse' : ''}`}
+            >
+              <div className={`flex items-center gap-3 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <TrendingUp size={20} className="animate-pulse" />
+                <span>{t('admin.sync_offline') || 'Sync Offline Orders'}</span>
+              </div>
+              <span className="bg-orange-600 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">
+                {offlineCount}
+              </span>
+            </button>
+          )}
           {filteredMenuItems.map(item => (
             <Link
               key={item.path}

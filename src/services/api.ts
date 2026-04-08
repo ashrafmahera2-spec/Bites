@@ -1,497 +1,220 @@
+const request = async (url: string, options?: RequestInit) => {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    if (!res.ok) {
+      throw new Error(text.slice(0, 100) || res.statusText);
+    }
+    return text;
+  }
+  if (!res.ok) {
+    throw new Error(data.error || data.message || 'Request failed');
+  }
+  return data;
+};
+
 export const api = {
   async getCategories() {
-    const res = await fetch('/api/categories');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse categories: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch categories');
-    }
-    return data;
+    return request('/api/categories');
   },
   async getProducts(branchId?: string | number) {
     const url = branchId ? `/api/products?branchId=${branchId}` : '/api/products';
-    const res = await fetch(url);
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse products: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch products');
-    }
-    return data;
+    return request(url);
   },
   async updateProductAvailability(branchId: string | number, productId: string | number, isAvailable: boolean) {
-    const res = await fetch(`/api/branches/${branchId}/products/${productId}/availability`, {
+    return request(`/api/branches/${branchId}/products/${productId}/availability`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isAvailable })
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse availability update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update availability');
-    }
-    return data;
   },
   async getSettings() {
-    const res = await fetch('/api/settings');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse settings: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch settings');
-    }
-    return data;
+    return request('/api/settings');
   },
   async updateSettings(settings: any) {
-    const res = await fetch('/api/settings', {
+    return request('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse settings update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update settings');
-    }
-    return data;
   },
   async getOrders(branchId?: string | number) {
     const url = branchId ? `/api/orders?branchId=${branchId}` : '/api/orders';
-    const res = await fetch(url);
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse orders: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch orders');
-    }
-    // Ensure items are parsed if they come as a string (common with some DB drivers)
+    const data = await request(url);
     return (Array.isArray(data) ? data : []).map((order: any) => ({
       ...order,
       items: typeof order.items === 'string' ? JSON.parse(order.items) : order.items
     }));
   },
   async createOrder(order: any) {
-    const res = await fetch('/api/orders', {
+    if (!navigator.onLine) {
+      const offlineOrders = JSON.parse(localStorage.getItem('offline_orders') || '[]');
+      const tempOrder = { ...order, id: 'temp_' + Date.now(), createdAt: new Date().toISOString(), isOffline: true };
+      offlineOrders.push(tempOrder);
+      localStorage.setItem('offline_orders', JSON.stringify(offlineOrders));
+      return tempOrder;
+    }
+    return request('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(order)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse order creation response: ' + text.slice(0, 50));
+  },
+  async syncOfflineOrders() {
+    if (!navigator.onLine) return;
+    const offlineOrders = JSON.parse(localStorage.getItem('offline_orders') || '[]');
+    if (offlineOrders.length === 0) return;
+
+    const syncedOrders = [];
+    for (const order of offlineOrders) {
+      try {
+        const { isOffline, id, ...orderData } = order;
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(orderData)
+        });
+        if (res.ok) syncedOrders.push(order.id);
+      } catch (e) {
+        console.error('Failed to sync order:', order.id, e);
+      }
     }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to create order');
-    }
-    return data;
+
+    const remainingOrders = offlineOrders.filter((o: any) => !syncedOrders.includes(o.id));
+    localStorage.setItem('offline_orders', JSON.stringify(remainingOrders));
+    return syncedOrders.length;
   },
   async updateOrderStatus(id: string | number, status: string) {
-    const res = await fetch(`/api/orders/${id}`, {
+    return request(`/api/orders/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status })
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse order status update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update order status');
-    }
-    return data;
+  },
+  async assignDeliveryBoy(orderId: string | number, deliveryBoyId: number) {
+    return request(`/api/orders/${orderId}/assign-delivery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deliveryBoyId })
+    });
   },
   async deleteOrder(id: string | number) {
-    const res = await fetch(`/api/orders/${id}`, {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse order deletion response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete order');
-    }
-    return data;
+    return request(`/api/orders/${id}`, { method: 'DELETE' });
   },
   async addProduct(product: any) {
-    const res = await fetch('/api/products', {
+    return request('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(product)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse product addition response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to add product');
-    }
-    return data;
   },
   async updateProduct(id: string | number, product: any) {
-    const res = await fetch(`/api/products/${id}`, {
+    return request(`/api/products/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(product)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse product update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update product');
-    }
-    return data;
   },
   async deleteProduct(id: string | number) {
-    const res = await fetch(`/api/products/${id}`, {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse product deletion response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete product');
-    }
-    return data;
+    return request(`/api/products/${id}`, { method: 'DELETE' });
   },
   async addCategory(category: any) {
-    const res = await fetch('/api/categories', {
+    return request('/api/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(category)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse category addition response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to add category');
-    }
-    return data;
   },
   async updateCategory(id: string | number, category: any) {
-    const res = await fetch(`/api/categories/${id}`, {
+    return request(`/api/categories/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(category)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse category update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update category');
-    }
-    return data;
   },
   async deleteCategory(id: string | number) {
-    const res = await fetch(`/api/categories/${id}`, {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse category deletion response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete category');
-    }
-    return data;
+    return request(`/api/categories/${id}`, { method: 'DELETE' });
   },
   async getDbConfig() {
-    const res = await fetch('/api/db-config');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse DB config: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch DB config');
-    }
-    return data;
+    return request('/api/db-config');
   },
   async updateDbConfig(config: any) {
-    const res = await fetch('/api/db-config', {
+    return request('/api/db-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse DB config update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update DB config');
-    }
-    return data;
   },
   async getHealth() {
-    const res = await fetch('/api/health');
-    const text = await res.text();
     try {
-      return JSON.parse(text);
+      return await request('/api/health');
     } catch (e) {
-      return { status: 'error', message: 'Failed to parse health check response' };
+      return { status: 'error', message: 'Failed to fetch health status' };
     }
   },
   async getOffers() {
-    const res = await fetch('/api/offers');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse offers: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch offers');
-    }
-    return data;
+    return request('/api/offers');
   },
   async addOffer(offer: any) {
-    const res = await fetch('/api/offers', {
+    return request('/api/offers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(offer)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse offer addition response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to add offer');
-    }
-    return data;
   },
   async updateOffer(id: string | number, offer: any) {
-    const res = await fetch(`/api/offers/${id}`, {
+    return request(`/api/offers/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(offer)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse offer update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update offer');
-    }
-    return data;
   },
   async deleteOffer(id: string | number) {
-    const res = await fetch(`/api/offers/${id}`, {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse offer deletion response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete offer');
-    }
-    return data;
+    return request(`/api/offers/${id}`, { method: 'DELETE' });
   },
   async getStaff(branchId?: string | number) {
     const url = branchId ? `/api/staff?branchId=${branchId}` : '/api/staff';
-    const res = await fetch(url);
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse staff: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch staff');
-    }
-    return data;
+    return request(url);
   },
   async addStaff(staff: any) {
-    const res = await fetch('/api/staff', {
+    return request('/api/staff', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(staff)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse staff addition response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to add staff');
-    }
-    return data;
   },
   async updateStaff(id: string | number, staff: any) {
-    const res = await fetch(`/api/staff/${id}`, {
+    return request(`/api/staff/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(staff)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse staff update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update staff');
-    }
-    return data;
   },
   async deleteStaff(id: string | number) {
-    const res = await fetch(`/api/staff/${id}`, {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse staff deletion response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete staff');
-    }
-    return data;
+    return request(`/api/staff/${id}`, { method: 'DELETE' });
   },
   async getBranches() {
-    const res = await fetch('/api/branches');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse branches: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch branches');
-    }
-    return data;
+    return request('/api/branches');
   },
   async addBranch(branch: any) {
-    const res = await fetch('/api/branches', {
+    return request('/api/branches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(branch)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse branch addition response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to add branch');
-    }
-    return data;
   },
   async updateBranch(id: string | number, branch: any) {
-    const res = await fetch(`/api/branches/${id}`, {
+    return request(`/api/branches/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(branch)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse branch update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update branch');
-    }
-    return data;
   },
   async deleteBranch(id: string | number) {
-    const res = await fetch(`/api/branches/${id}`, {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse branch deletion response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete branch');
-    }
-    return data;
+    return request(`/api/branches/${id}`, { method: 'DELETE' });
   },
   async logError(error: { message: string; stack?: string; url: string; userAgent: string }) {
     try {
@@ -505,166 +228,82 @@ export const api = {
     }
   },
   async getErrors() {
-    const res = await fetch('/api/errors');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse errors: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch errors');
-    }
-    return data;
+    return request('/api/errors');
   },
   async clearErrors() {
-    const res = await fetch('/api/errors', {
-      method: 'DELETE'
-    });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse clear errors response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to clear errors');
-    }
-    return data;
+    return request('/api/errors', { method: 'DELETE' });
   },
-
-  // Coupons
+  async deleteError(id: number) {
+    return request(`/api/errors/${id}`, { method: 'DELETE' });
+  },
   async getCoupons() {
-    const res = await fetch('/api/coupons');
-    return res.json();
+    return request('/api/coupons');
   },
   async addCoupon(coupon: any) {
-    const res = await fetch('/api/coupons', {
+    return request('/api/coupons', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(coupon)
     });
-    return res.json();
   },
   async updateCoupon(id: string | number, coupon: any) {
-    const res = await fetch(`/api/coupons/${id}`, {
+    return request(`/api/coupons/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(coupon)
     });
-    return res.json();
   },
   async deleteCoupon(id: string | number) {
-    const res = await fetch(`/api/coupons/${id}`, {
-      method: 'DELETE'
-    });
-    return res.json();
+    return request(`/api/coupons/${id}`, { method: 'DELETE' });
   },
   async validateCoupon(code: string) {
-    const res = await fetch(`/api/coupons/validate/${code}`);
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Invalid coupon');
-    }
-    return res.json();
+    return request(`/api/coupons/validate/${code}`);
   },
-
-  // Customers
   async getCustomers() {
-    const res = await fetch('/api/customers');
-    return res.json();
+    return request('/api/customers');
   },
   async updateCustomer(id: string | number, customer: any) {
-    const res = await fetch(`/api/customers/${id}`, {
+    return request(`/api/customers/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(customer)
     });
-    return res.json();
   },
   async deleteCustomer(id: string | number) {
-    const res = await fetch(`/api/customers/${id}`, {
-      method: 'DELETE'
-    });
-    return res.json();
+    return request(`/api/customers/${id}`, { method: 'DELETE' });
   },
   async registerCustomer(customer: any) {
-    const res = await fetch('/api/customers/register', {
+    return request('/api/customers/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(customer)
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Registration failed');
-    }
-    return res.json();
   },
   async loginCustomer(credentials: any) {
-    const res = await fetch('/api/customers/login', {
+    return request('/api/customers/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(credentials)
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Login failed');
-    }
-    return res.json();
   },
   async getCustomerOrders(phone: string) {
-    const res = await fetch(`/api/customers/orders?phone=${phone}`);
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to fetch customer orders');
-    }
-    const data = await res.json();
+    const data = await request(`/api/customers/orders?phone=${phone}`);
     return (Array.isArray(data) ? data : []).map((order: any) => ({
       ...order,
       items: typeof order.items === 'string' ? JSON.parse(order.items) : order.items
     }));
   },
   async getCustomerProfile(phone: string) {
-    const res = await fetch(`/api/customers/profile?phone=${phone}`);
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to fetch customer profile');
-    }
-    return res.json();
+    return request(`/api/customers/profile?phone=${phone}`);
   },
-
   async getPwaSettings() {
-    const res = await fetch('/api/settings/pwa');
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse PWA settings: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch PWA settings');
-    }
-    return data;
+    return request('/api/settings/pwa');
   },
   async updatePwaSettings(settings: any) {
-    const res = await fetch('/api/settings/pwa', {
+    return request('/api/settings/pwa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Failed to parse PWA settings update response: ' + text.slice(0, 50));
-    }
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update PWA settings');
-    }
-    return data;
   }
 };

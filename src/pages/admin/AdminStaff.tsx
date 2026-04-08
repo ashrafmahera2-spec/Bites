@@ -10,7 +10,7 @@ interface StaffMember {
   id: number;
   name: string;
   username: string;
-  role: 'admin' | 'staff' | 'cashier' | 'kitchen';
+  role: 'admin' | 'staff' | 'cashier' | 'kitchen' | 'delivery';
   branchId?: number;
   isActive: boolean;
   createdAt: string;
@@ -34,7 +34,7 @@ export default function AdminStaff() {
     name: '',
     username: '',
     password: '',
-    role: 'staff' as 'admin' | 'staff' | 'cashier' | 'kitchen',
+    role: 'staff' as 'admin' | 'staff' | 'cashier' | 'kitchen' | 'delivery',
     branchId: undefined as number | undefined,
     isActive: true
   });
@@ -201,6 +201,7 @@ export default function AdminStaff() {
                     <option value="staff">{t('admin.role_staff')}</option>
                     <option value="cashier">{t('admin.role_cashier')}</option>
                     <option value="kitchen">{t('admin.staff_role_kitchen')}</option>
+                    <option value="delivery">{t('admin.role_delivery')}</option>
                   </select>
                 </div>
               </div>
@@ -277,11 +278,13 @@ export default function AdminStaff() {
                       member.role === 'admin' ? 'bg-purple-100 text-purple-600' :
                       member.role === 'cashier' ? 'bg-blue-100 text-blue-600' :
                       member.role === 'kitchen' ? 'bg-orange-100 text-orange-600' :
+                      member.role === 'delivery' ? 'bg-green-100 text-green-600' :
                       'bg-gray-100 text-gray-600'
                     }`}>
                       {member.role === 'admin' ? t('admin.role_admin') : 
                        member.role === 'cashier' ? t('admin.role_cashier') : 
                        member.role === 'kitchen' ? t('admin.staff_role_kitchen') : 
+                       member.role === 'delivery' ? t('admin.role_delivery') :
                        t('admin.role_staff')}
                     </span>
                   </td>
