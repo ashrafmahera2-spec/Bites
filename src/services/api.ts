@@ -1,19 +1,27 @@
-const request = async (url: string, options?: RequestInit) => {
-  const res = await fetch(url, options);
-  const text = await res.text();
-  let data;
+const request = async (url: string, options?: RequestInit, retries = 2): Promise<any> => {
   try {
-    data = JSON.parse(text);
-  } catch (e) {
-    if (!res.ok) {
-      throw new Error(text.slice(0, 100) || res.statusText);
+    const res = await fetch(url, options);
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      if (!res.ok) {
+        throw new Error(text.slice(0, 100) || res.statusText);
+      }
+      return text;
     }
-    return text;
+    if (!res.ok) {
+      throw new Error(data.error || data.message || 'Request failed');
+    }
+    return data;
+  } catch (error: any) {
+    if (retries > 0 && (error.name === 'TypeError' || error.message.includes('Failed to fetch'))) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return request(url, options, retries - 1);
+    }
+    throw error;
   }
-  if (!res.ok) {
-    throw new Error(data.error || data.message || 'Request failed');
-  }
-  return data;
 };
 
 export const api = {

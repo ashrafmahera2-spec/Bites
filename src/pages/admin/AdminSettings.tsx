@@ -5,6 +5,7 @@ import InvoicePreview from '../../components/admin/InvoicePreview';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useSettings } from '../../contexts/SettingsContext';
 
 interface Settings {
   restaurantName: string;
@@ -68,6 +69,7 @@ interface PwaSettings {
 
 const AdminSettings: React.FC = () => {
   const { t, isRTL } = useLanguage();
+  const { refreshSettings } = useSettings();
   const [settings, setSettings] = useState<Settings>({
     restaurantName: "Bite's Menu",
     logoUrl: '',
@@ -183,6 +185,7 @@ const AdminSettings: React.FC = () => {
         api.updateSettings(settings),
         api.updatePwaSettings(pwaSettings)
       ]);
+      await refreshSettings();
       setSaved(true);
       toast.success(t('admin.settings_saved'));
       setTimeout(() => setSaved(false), 3000);

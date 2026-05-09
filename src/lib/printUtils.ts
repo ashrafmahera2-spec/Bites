@@ -95,10 +95,11 @@ export const printOrder = (order: any, settings: any, t: (key: string) => string
         </div>
 
         <div class="totals">
-          <p><span>Subtotal:</span> <span>${(order.subtotal || order.total).toFixed(2)}</span></p>
-          ${taxConfig.enableTax ? `<p><span>Tax (${taxConfig.taxRate}%):</span> <span>${((order.subtotal || order.total) * taxConfig.taxRate / 100).toFixed(2)}</span></p>` : ''}
-          ${taxConfig.enableServiceCharge ? `<p><span>Service (${taxConfig.serviceChargeRate}%):</span> <span>${((order.subtotal || order.total) * taxConfig.serviceChargeRate / 100).toFixed(2)}</span></p>` : ''}
-          ${order.discount ? `<p><span>Discount:</span> <span>-${order.discount.toFixed(2)}</span></p>` : ''}
+          <p><span>${t('cart.subtotal')}:</span> <span>${(order.subtotal || order.total).toFixed(2)}</span></p>
+          ${taxConfig.enableTax ? `<p><span>${t('admin.settings_tax_rate')} (${taxConfig.taxRate}%):</span> <span>${((order.subtotal || order.total) * taxConfig.taxRate / 100).toFixed(2)}</span></p>` : ''}
+          ${taxConfig.enableServiceCharge ? `<p><span>${t('admin.settings_service_rate')} (${taxConfig.serviceChargeRate}%):</span> <span>${((order.subtotal || order.total) * taxConfig.serviceChargeRate / 100).toFixed(2)}</span></p>` : ''}
+          ${order.discount ? `<p><span>${t('admin.coupons_discount')}:</span> <span>-${order.discount.toFixed(2)}</span></p>` : ''}
+          ${order.pointsValue ? `<p><span>${t('cart.points_discount')}:</span> <span>-${order.pointsValue.toFixed(2)}</span></p>` : ''}
           <p class="grand-total"><span>${t('admin.orders_total')}:</span> <span>${order.total.toFixed(2)} ${t('common.currency')}</span></p>
         </div>
 

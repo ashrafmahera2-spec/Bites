@@ -35,7 +35,7 @@ const MenuLayout: React.FC<MenuLayoutProps> = ({
   const { items } = useCart();
   const { user, isAdmin, isCustomer } = useAuth();
   const location = useLocation();
-  const theme = settings?.global?.features?.menuTheme || 'classic';
+  const theme = settings?.features?.menuTheme || 'classic';
 
   const cartCount = items.reduce((sum, item) => sum + item.quantity, 0);
 

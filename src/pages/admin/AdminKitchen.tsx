@@ -37,14 +37,23 @@ export default function AdminKitchen() {
   const [selectedBranchId, setSelectedBranchId] = useState<number | 'all'>(user?.role === 'admin' ? 'all' : (user?.branchId || 'all'));
   const [loading, setLoading] = useState(true);
 
+  const [prevOrderCount, setPrevOrderCount] = useState(0);
+
   const fetchOrders = async () => {
     try {
       const data = await api.getOrders(selectedBranchId === 'all' ? undefined : selectedBranchId);
       const safeOrders = Array.isArray(data) ? data : [];
-      // Filter only active kitchen orders
-      setOrders(safeOrders.filter((o: Order) => 
+      const activeOrders = safeOrders.filter((o: Order) => 
         o.status === 'pending' || o.status === 'in-progress'
-      ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+      ).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      
+      if (prevOrderCount > 0 && activeOrders.length > prevOrderCount) {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.play().catch(e => console.log('Audio blocked:', e));
+      }
+
+      setOrders(activeOrders);
+      setPrevOrderCount(activeOrders.length);
     } catch (error) {
       console.error("Error fetching kitchen orders:", error);
       toast.error(t('admin.kitchen_fetch_error'));

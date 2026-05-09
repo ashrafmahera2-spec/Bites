@@ -10,6 +10,54 @@ const CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
 const JSON_DB_FILE = path.join(process.cwd(), 'local-db.json');
 
 let pool: Pool | null = null;
+let lastDbAttempt = 0;
+const DB_COOLDOWN = 30000; // 30 seconds cooldown after failure
+
+async function getPool() {
+  if (pool) return pool;
+  
+  const now = Date.now();
+  if (now - lastDbAttempt < DB_COOLDOWN) {
+    return null;
+  }
+  
+  lastDbAttempt = now;
+  try {
+    const configData = await fs.readFile(CONFIG_FILE, 'utf-8');
+    const config = JSON.parse(configData);
+    
+    if (!config.host || !config.database) {
+      return null;
+    }
+
+    console.log('Attempting to connect to database...');
+    pool = mysql.createPool({
+      host: config.host,
+      user: config.user,
+      password: config.password,
+      database: config.database,
+      waitForConnections: true,
+      connectionLimit: 5,
+      queueLimit: 0,
+      connectTimeout: 5000 // 5 seconds timeout
+    });
+    
+    // Test connection
+    await pool.query('SELECT 1');
+    
+    // Init tables in background or quickly
+    initDB(pool).catch(err => console.error('Background initDB error:', err));
+    
+    console.log('Database connected successfully.');
+    return pool;
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') {
+      console.error('Database connection error:', error.message || error);
+    }
+    pool = null;
+    return null;
+  }
+}
 
 async function getJsonData() {
   const initialData = {
@@ -107,42 +155,6 @@ async function saveJsonData(data: any) {
   await fs.writeFile(JSON_DB_FILE, JSON.stringify(data, null, 2));
 }
 
-async function getPool() {
-  if (pool) return pool;
-  
-  console.log('Initializing database pool...');
-  try {
-    const configData = await fs.readFile(CONFIG_FILE, 'utf-8');
-    const config = JSON.parse(configData);
-    
-    pool = mysql.createPool({
-      host: config.host,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      connectTimeout: 10000 // 10 seconds timeout
-    });
-    
-    // Test connection and init tables
-    console.time('initDB');
-    await initDB(pool);
-    console.timeEnd('initDB');
-    
-    console.log('Database pool initialized successfully.');
-    return pool;
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
-      console.log('Database configuration file not found. Falling back to JSON DB.');
-    } else {
-      console.error('Database connection error:', error.message || error);
-    }
-    pool = null; // Ensure pool is null if initialization fails
-    return null;
-  }
-}
 
 async function initDB(p: Pool) {
   const queries = [
@@ -191,6 +203,11 @@ async function initDB(p: Pool) {
       address TEXT NOT NULL,
       type VARCHAR(20) DEFAULT 'delivery',
       items JSON NOT NULL,
+      subtotal DECIMAL(10, 2) DEFAULT 0,
+      discount DECIMAL(10, 2) DEFAULT 0,
+      couponCode VARCHAR(50),
+      pointsUsed INT DEFAULT 0,
+      pointsValue DECIMAL(10, 2) DEFAULT 0,
       total DECIMAL(10, 2) NOT NULL,
       status VARCHAR(50) DEFAULT 'pending',
       paymentMethod VARCHAR(50),
@@ -288,6 +305,20 @@ async function initDB(p: Pool) {
     }
   } catch (error) {
     console.error('Migration error (deliveryBoyId in orders):', error);
+  }
+
+  try {
+    const [columns]: any = await p.query('SHOW COLUMNS FROM orders LIKE "subtotal"');
+    if (columns.length === 0) {
+      console.log('Adding subtotal, discount, couponCode, pointsUsed, pointsValue columns to orders table...');
+      await p.query('ALTER TABLE orders ADD COLUMN subtotal DECIMAL(10, 2) DEFAULT 0 AFTER items');
+      await p.query('ALTER TABLE orders ADD COLUMN discount DECIMAL(10, 2) DEFAULT 0 AFTER subtotal');
+      await p.query('ALTER TABLE orders ADD COLUMN couponCode VARCHAR(50) AFTER discount');
+      await p.query('ALTER TABLE orders ADD COLUMN pointsUsed INT DEFAULT 0 AFTER couponCode');
+      await p.query('ALTER TABLE orders ADD COLUMN pointsValue DECIMAL(10, 2) DEFAULT 0 AFTER pointsUsed');
+    }
+  } catch (error) {
+    console.error('Migration error (order details):', error);
   }
 
   // Migration: Add branchId to staff if it doesn't exist
@@ -761,11 +792,9 @@ async function startServer() {
   }));
 
   app.get('/api/orders', asyncHandler(async (req: any, res: any) => {
-    console.log(`GET /api/orders - branchId: ${req.query.branchId}`);
     const p = await getPool();
     const { branchId } = req.query;
     if (!p) {
-      console.log('Using JSON DB for orders');
       const data = await getJsonData();
       let orders = data.orders || [];
       if (branchId) {
@@ -786,7 +815,7 @@ async function startServer() {
 
   app.post('/api/orders', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
-    const { customerName, customerPhone, address, items, total, paymentMethod, type, screenshot, status, branchId, couponCode, pointsUsed, pointsValue } = req.body;
+    const { customerName, customerPhone, address, items, total, subtotal, discount, paymentMethod, type, screenshot, status, branchId, couponCode, pointsUsed, pointsValue } = req.body;
     
     if (!p) {
       const data = await getJsonData();
@@ -797,6 +826,8 @@ async function startServer() {
         address,
         items, // Store as object in JSON
         total,
+        subtotal: subtotal || total,
+        discount: discount || 0,
         paymentMethod,
         type,
         screenshot,
@@ -835,8 +866,8 @@ async function startServer() {
       await connection.beginTransaction();
 
       const [result]: any = await connection.query(
-        'INSERT INTO orders (customerName, customerPhone, address, items, total, paymentMethod, type, screenshot, status, branchId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [customerName, customerPhone, address, JSON.stringify(items), total, paymentMethod, type, screenshot, status || 'pending', branchId]
+        'INSERT INTO orders (customerName, customerPhone, address, items, subtotal, discount, couponCode, pointsUsed, pointsValue, total, paymentMethod, type, screenshot, status, branchId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [customerName, customerPhone, address, JSON.stringify(items), subtotal || total, discount || 0, couponCode || null, pointsUsed || 0, pointsValue || 0, total, paymentMethod, type, screenshot, status || 'pending', branchId]
       );
 
       // Handle Points deduction
@@ -961,10 +992,8 @@ async function startServer() {
 
   // Error Logging
   app.get('/api/errors', asyncHandler(async (req: any, res: any) => {
-    console.log('GET /api/errors');
     const p = await getPool();
     if (!p) {
-      console.log('Using JSON DB for errors');
       const data = await getJsonData();
       return res.json(data.errors || []);
     }

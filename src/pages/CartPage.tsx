@@ -77,6 +77,9 @@ const CartPage: React.FC = () => {
   const [usePoints, setUsePoints] = useState(false);
   const [customerData, setCustomerData] = useState<any>(null);
 
+  const [lastOrder, setLastOrder] = useState<any>(null);
+  const [successOrderId, setSuccessOrderId] = useState<number | null>(null);
+
   const activeBranch = React.useMemo(() => {
     return branches.find(b => b.id === branchId);
   }, [branches, branchId]);
@@ -101,7 +104,10 @@ const CartPage: React.FC = () => {
     ? Math.min(customerData.points, Math.ceil(pointsDiscount / settings.pointsConfig.currencyPerPoint))
     : 0;
 
-  const finalTotal = Math.max(0, subtotal - finalDiscount - pointsDiscount + activeDeliveryFee);
+  const taxAmount = settings?.taxConfig?.enableTax ? (subtotal - finalDiscount - pointsDiscount) * (settings.taxConfig.taxRate / 100) : 0;
+  const serviceChargeAmount = settings?.taxConfig?.enableServiceCharge ? (subtotal - finalDiscount - pointsDiscount) * (settings.taxConfig.serviceChargeRate / 100) : 0;
+
+  const finalTotal = Math.max(0, subtotal - finalDiscount - pointsDiscount + taxAmount + serviceChargeAmount + activeDeliveryFee);
 
   const activeWhatsApp = activeBranch?.whatsappNumber || settings?.whatsappNumber;
 
@@ -145,17 +151,21 @@ const CartPage: React.FC = () => {
     fetchSettings();
   }, []);
 
-  const printInvoice = (orderId: number) => {
-    const order = {
+  const printInvoice = (orderId: number, orderDetails?: any) => {
+    const orderToPrint = orderDetails || {
       id: orderId,
       customerName: customerInfo.name,
       customerPhone: customerInfo.phone,
       address: orderType === 'delivery' ? customerInfo.address : t('cart.pickup_restaurant'),
       items: items,
-      total: total + activeDeliveryFee,
+      subtotal,
+      discount: finalDiscount + pointsDiscount,
+      taxAmount,
+      serviceChargeAmount,
+      total: finalTotal,
       createdAt: new Date().toISOString()
     };
-    printOrder(order, settings, t, isRTL);
+    printOrder(orderToPrint, settings, t, isRTL);
   };
 
   const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -223,7 +233,7 @@ const CartPage: React.FC = () => {
   const handleOrder = async () => {
     if (settings?.features?.requireLogin && !isCustomer) {
       toast.error(t('login.required_for_checkout') || 'Please login to complete your order');
-      window.location.href = '/login?redirect=/cart';
+      window.location.href = `/login?redirect=/cart`;
       return;
     }
 
@@ -248,6 +258,9 @@ const CartPage: React.FC = () => {
         pointsUsed,
         pointsValue: pointsDiscount,
         couponCode: appliedCoupon?.code,
+        taxAmount,
+        serviceChargeAmount,
+        deliveryFee: activeDeliveryFee,
         total: finalTotal,
         paymentMethod,
         screenshot: screenshot || null,
@@ -255,7 +268,14 @@ const CartPage: React.FC = () => {
         branchId: branchId || undefined
       };
 
+      // Capture for printing
+      setLastOrder({
+        ...orderData,
+        createdAt: new Date().toISOString()
+      });
+
       const response = await api.createOrder(orderData);
+      setSuccessOrderId(response?.id || Math.floor(Math.random() * 1000000));
 
       if (isWhatsApp && activeWhatsApp) {
         let message = `*${t('cart.whatsapp_order_title')}*\n\n`;
@@ -283,6 +303,8 @@ const CartPage: React.FC = () => {
         message += `\n*${t('cart.subtotal')}:* ${subtotal} ${t('common.currency')}`;
         if (appliedCoupon) message += `\n*${t('admin.nav_coupons')}:* -${finalDiscount} ${t('common.currency')}`;
         if (pointsDiscount > 0) message += `\n*${t('admin.settings_points_system')}:* -${pointsDiscount} ${t('common.currency')}`;
+        if (taxAmount > 0) message += `\n*${t('admin.settings_tax_label') || 'Tax'}:* ${taxAmount} ${t('common.currency')}`;
+        if (serviceChargeAmount > 0) message += `\n*${t('admin.settings_service_charge') || 'Service Charge'}:* ${serviceChargeAmount} ${t('common.currency')}`;
         if (orderType === 'delivery') message += `\n*${t('cart.delivery_fee')}:* ${activeDeliveryFee} ${t('common.currency')}`;
         message += `\n*${t('cart.total')}:* ${finalTotal} ${t('common.currency')}`;
         
@@ -797,7 +819,7 @@ const CartPage: React.FC = () => {
                   {t('cart.back_to_menu')}
                 </button>
                 <button
-                  onClick={() => printInvoice(Math.floor(Math.random() * 1000000))}
+                  onClick={() => printInvoice(successOrderId || 0, lastOrder)}
                   className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-900 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
                 >
                   <Printer size={18} />

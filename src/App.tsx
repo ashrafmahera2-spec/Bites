@@ -27,6 +27,7 @@ const AdminCoupons = lazy(() => import('./pages/admin/AdminCoupons'));
 const AdminCustomers = lazy(() => import('./pages/admin/AdminCustomers'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports'));
 const AdminDelivery = lazy(() => import('./pages/admin/AdminDelivery'));
+const AdminPwaInstall = lazy(() => import('./pages/admin/AdminPwaInstall'));
 const CustomerDisplay = lazy(() => import('./pages/admin/CustomerDisplay'));
 const KitchenStatus = lazy(() => import('./pages/KitchenStatus'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
@@ -115,6 +116,7 @@ export default function App() {
                 <Route path="delivery" element={<AdminDelivery />} />
                 <Route path="display" element={<CustomerDisplay />} />
                 <Route path="errors" element={<AdminErrors />} />
+                <Route path="pwa-install" element={<AdminPwaInstall />} />
                 <Route path="kitchen" element={<AdminKitchen />} />
                 <Route path="branches" element={<AdminBranches />} />
                 <Route path="cashier" element={<AdminCashier />} />
