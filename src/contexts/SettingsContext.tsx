@@ -44,6 +44,7 @@ interface Settings {
     enableServiceCharge: boolean;
     serviceChargeRate: number;
   };
+  tables?: { id: string; name: string }[];
 }
 
 interface SettingsContextType {

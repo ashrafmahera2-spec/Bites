@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
-import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow, Settings as SettingsIcon, DollarSign, Printer, Eye } from 'lucide-react';
+import { Save, QrCode, Download, Smartphone, CreditCard, Banknote, Wallet, Clock, Facebook, Instagram, Music2, TrendingUp, X, AppWindow, Settings as SettingsIcon, DollarSign, Printer, Eye, UtensilsCrossed, Plus, Trash2 } from 'lucide-react';
 import InvoicePreview from '../../components/admin/InvoicePreview';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
@@ -56,7 +56,10 @@ interface Settings {
     headerText: string;
     footerText: string;
     invoiceStyle: 'classic' | 'modern' | 'compact';
+    invoicePrinterName: string;
+    kitchenPrinterName: string;
   };
+  tables?: { id: string; name: string }[];
 }
 
 interface PwaSettings {
@@ -118,8 +121,11 @@ const AdminSettings: React.FC = () => {
       showLogo: true,
       headerText: '',
       footerText: '',
-      invoiceStyle: 'classic'
-    }
+      invoiceStyle: 'classic',
+      invoicePrinterName: '',
+      kitchenPrinterName: ''
+    },
+    tables: []
   });
 
   const [pwaSettings, setPwaSettings] = useState<PwaSettings>({
@@ -235,6 +241,89 @@ const AdminSettings: React.FC = () => {
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   };
 
+  const downloadTableQR = (table: { id: string; name: string }) => {
+    // We'll use a hidden div or similar to render the specific QR
+    const tableUrl = `${window.location.origin}/?table=${table.id}`;
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Use a temporary div to render the SVG from qrcode.react
+    const tempDiv = document.createElement('div');
+    tempDiv.style.display = 'none';
+    document.body.appendChild(tempDiv);
+    
+    // This is a bit tricky in pure React if we want to do it imperatively
+    // But we can just create a simple SVG string or use the existing QRCodeSVG component
+    // For simplicity, let's just use the same logic as downloadQR but with custom text
+    
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = 400;
+      canvas.height = 500;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.fillStyle = '#ea580c';
+      ctx.beginPath();
+      ctx.roundRect(20, 20, 360, 80, 20);
+      ctx.fill();
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(settings.restaurantName || "Restaurant", 200, 55);
+      ctx.font = 'bold 18px Arial';
+      ctx.fillText(`${t('admin.tables_name')}: ${table.name}`, 200, 85);
+      
+      // We need the SVG for the table URL
+      // Since we can't easily get it here, we'll suggest using the main QR for now or
+      // we can render a hidden QRCodeSVG.
+      // Let's do it properly by adding a state for "currently-downloading-table"
+      setDownloadTableTarget(table);
+      setTimeout(() => {
+        const svg = document.getElementById(`table-qr-${table.id}`)?.querySelector('svg');
+        if (svg) {
+          const svgData = new XMLSerializer().serializeToString(svg);
+          const qrImg = new Image();
+          qrImg.onload = () => {
+            ctx.drawImage(qrImg, 60, 120, 280, 280);
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '12px Arial';
+            ctx.fillText("Scan to order from this table", 200, 430);
+            ctx.fillText("Powered by mamlinc", 200, 480);
+            
+            const pngFile = canvas.toDataURL('image/png');
+            const downloadLink = document.createElement('a');
+            downloadLink.download = `table-${table.name}-qr.png`;
+            downloadLink.href = pngFile;
+            downloadLink.click();
+            setDownloadTableTarget(null);
+          };
+          qrImg.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+        }
+      }, 100);
+    };
+    img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='; // dummy
+  };
+
+  const [downloadTableTarget, setDownloadTableTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const addTable = () => {
+    const name = prompt(t('admin.tables_add_prompt') || 'Enter table name/number:');
+    if (name) {
+      const newTable = { id: name.replace(/\s+/g, '-').toLowerCase() + '-' + Date.now(), name };
+      setSettings(prev => ({ ...prev, tables: [...(prev.tables || []), newTable] }));
+    }
+  };
+
+  const removeTable = (id: string) => {
+    if (confirm(t('common.delete_confirm'))) {
+      setSettings(prev => ({ ...prev, tables: (prev.tables || []).filter(t => t.id !== id) }));
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64">{t('common.loading')}</div>;
 
   const menuUrl = window.location.origin;
@@ -263,7 +352,7 @@ const AdminSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="flex flex-col items-center gap-4 p-6 bg-orange-50 rounded-3xl border border-orange-100">
               <div className="relative w-24 h-24 bg-white rounded-2xl shadow-sm overflow-hidden border border-orange-200 flex items-center justify-center">
-                {settings.logoUrl ? (
+                {settings.logoUrl && settings.logoUrl.trim() !== '' ? (
                   <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
                 ) : (
                   <Smartphone className="text-orange-200" size={40} />
@@ -677,6 +766,28 @@ const AdminSettings: React.FC = () => {
                 </select>
               </div>
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_invoice_printer')}</label>
+                <input
+                  type="text"
+                  placeholder="e.g. POS-80"
+                  className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                  value={settings.printSettings?.invoicePrinterName || ''}
+                  onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, invoicePrinterName: e.target.value } })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.settings_kitchen_printer')}</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Kitchen-Receipt"
+                  className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                  value={settings.printSettings?.kitchenPrinterName || ''}
+                  onChange={e => setSettings({ ...settings, printSettings: { ...settings.printSettings, kitchenPrinterName: e.target.value } })}
+                />
+              </div>
+            </div>
             <label className={`flex items-center gap-2 cursor-pointer ${isRTL ? 'flex-row-reverse' : ''}`}>
               <input
                 type="checkbox"
@@ -785,6 +896,63 @@ const AdminSettings: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Tables Management */}
+        <div className={`bg-white p-8 rounded-3xl shadow-sm border border-gray-100 space-y-6 ${isRTL ? 'text-right' : 'text-left'}`}>
+          <div className="flex items-center justify-between">
+            <h3 className={`text-xl font-bold flex items-center gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <UtensilsCrossed className="text-orange-600" />
+              {t('admin.tables_title') || 'Tables Management'}
+            </h3>
+            <button
+              onClick={addTable}
+              className="p-2 bg-orange-100 text-orange-600 rounded-xl hover:bg-orange-200 transition-all"
+            >
+              <Plus size={20} />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {(settings.tables || []).map(table => (
+              <div key={table.id} className={`flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <div className={`flex items-center gap-3 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center font-bold text-orange-600">
+                    {table.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div className={isRTL ? 'text-right' : 'text-left'}>
+                    <p className="font-bold text-gray-900">{table.name}</p>
+                    <p className="text-[10px] text-gray-400 font-mono select-all">?table={table.id}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Hidden QR for downloading */}
+                  <div id={`table-qr-${table.id}`} className="hidden">
+                    <QRCodeSVG value={`${window.location.origin}/?table=${table.name}&branch=${settings.branchId || ''}`} size={256} level="H" />
+                  </div>
+                  
+                  <button
+                    onClick={() => downloadTableQR(table)}
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title={t('admin.settings_qr_download')}
+                  >
+                    <Download size={18} />
+                  </button>
+                  <button
+                    onClick={() => removeTable(table.id)}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {(settings.tables || []).length === 0 && (
+              <div className="text-center py-8 text-gray-400">
+                <p className="text-sm">{t('admin.tables_no_data') || 'No tables added yet'}</p>
+              </div>
+            )}
           </div>
         </div>
 

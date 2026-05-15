@@ -25,6 +25,7 @@ interface Product {
   imageUrl: string;
   categoryId: string;
   isAvailable: boolean;
+  sizes?: { label: string; price: number }[];
 }
 
 interface Offer {
@@ -33,6 +34,9 @@ interface Offer {
   description: string;
   imageUrl: string;
   isActive: boolean;
+  price: number;
+  products: number[];
+  productNames?: string[];
 }
 
 interface Branch {
@@ -55,9 +59,28 @@ const MenuPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { addItem, items, updateQuantity, branchId, setBranchId } = useCart();
+  const [selectedProductForSize, setSelectedProductForSize] = useState<Product | null>(null);
+  const { addItem, addOffer, items, updateQuantity, branchId, setBranchId, orderType, setOrderType, tableNumber, setTableNumber } = useCart();
   const { isCustomer } = useAuth();
   const { t, isRTL } = useLanguage();
+
+  // Detect QR Code parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tableParam = params.get('table');
+    const branchParam = params.get('branch');
+    
+    if (branchParam) {
+      setBranchId(Number(branchParam));
+    }
+    
+    if (tableParam) {
+      // Find table name/number from the ID if needed, or just use the ID
+      setOrderType('dine_in');
+      setTableNumber(tableParam);
+      toast.success(t('menu.table_detected') || `Dining at table ${tableParam}`);
+    }
+  }, []);
 
   const activeBranch = React.useMemo(() => {
     return branches.find(b => b.id === branchId);
@@ -91,8 +114,16 @@ const MenuPage: React.FC = () => {
           api.getBranches().catch(e => { console.error(e); return []; })
         ]);
         setCategories(Array.isArray(cats) ? cats : []);
-        setProducts(Array.isArray(prods) ? prods : []);
-        setOffers((Array.isArray(offs) ? offs : []).filter((o: Offer) => o.isActive));
+        const processedProds = Array.isArray(prods) ? prods.map((p: any) => ({
+          ...p,
+          sizes: typeof p.sizes === 'string' ? JSON.parse(p.sizes) : p.sizes
+        })) : [];
+        setProducts(processedProds);
+        const enrichedOffers = (Array.isArray(offs) ? offs : []).filter((o: Offer) => o.isActive).map((o: any) => ({
+          ...o,
+          productNames: o.products?.map((pid: number) => prods.find((p: any) => p.id === pid)?.name).filter(Boolean) || []
+        }));
+        setOffers(enrichedOffers);
         setSettings(sets);
         setBranches(Array.isArray(brs) ? brs : []);
         
@@ -116,6 +147,30 @@ const MenuPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [branchId]);
 
+  const handleAddItem = (product: Product) => {
+    if (product.sizes && product.sizes.length > 0) {
+      setSelectedProductForSize(product);
+      return;
+    }
+    addItem({ ...product, quantity: 1 });
+    toast.success(t('product.added').replace('{name}', product.name));
+  };
+
+  const handleAddSizeItem = (product: Product, size: { label: string; price: number }) => {
+    const newItem = {
+      ...product,
+      id: `${product.id}_${size.label}`,
+      originalId: product.id,
+      name: `${product.name} (${size.label})`,
+      price: size.price,
+      quantity: 1,
+      selectedSize: size.label
+    };
+    addItem(newItem as any);
+    toast.success(t('product.added').replace('{name}', newItem.name));
+    setSelectedProductForSize(null);
+  };
+
   const filteredProducts = Array.isArray(products) ? products.filter(p => {
     if (!p) return false;
     const matchesCategory = activeCategory === 'all' || p.categoryId === activeCategory;
@@ -135,7 +190,7 @@ const MenuPage: React.FC = () => {
       <div id="hero-section" className="bg-orange-600 text-white py-12 px-4 text-center">
         <div className="flex flex-col items-center gap-4 mb-6">
           <div className="bg-white p-4 rounded-3xl shadow-2xl shadow-black/20 w-24 h-24 flex items-center justify-center overflow-hidden">
-            {settings?.logoUrl ? (
+            {settings?.logoUrl && settings.logoUrl.trim() !== '' ? (
               <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
             ) : (
               <ShoppingBag size={48} className="text-orange-600" />
@@ -174,6 +229,34 @@ const MenuPage: React.FC = () => {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
+
+        {/* Dining Info Alert */}
+        {orderType === 'dine_in' && tableNumber && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-md mx-auto mt-6 bg-white/20 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between border border-white/30"
+          >
+            <div className="flex items-center gap-3">
+              <div className="bg-white text-orange-600 p-2 rounded-xl">
+                <UtensilsCrossed size={20} />
+              </div>
+              <div className={isRTL ? 'text-right' : 'text-left'}>
+                <p className="text-xs text-orange-100">{t('admin.type_dine_in')}</p>
+                <p className="font-bold text-white">{t('admin.tables_name')}: {tableNumber}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                setOrderType(null);
+                setTableNumber(null);
+              }}
+              className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors"
+            >
+              {t('common.cancel')}
+            </button>
+          </motion.div>
+        )}
       </div>
 
       {/* Offers Section */}
@@ -183,29 +266,65 @@ const MenuPage: React.FC = () => {
             <h2 className="text-xl font-bold text-gray-900">{t('offers.title')}</h2>
           </div>
           <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-            {offers.map(offer => (
-              <motion.div
-                key={offer.id}
-                initial={{ opacity: 0, x: isRTL ? 20 : -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="min-w-[300px] md:min-w-[400px] bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 flex flex-col md:flex-row"
-              >
-                <div className="h-40 md:h-auto md:w-1/3 relative">
-                  <img 
-                    src={offer.imageUrl || 'https://picsum.photos/seed/offer/400/300'} 
-                    alt={offer.title} 
-                    className="w-full h-full object-cover"
-                  />
-                  <div className={`absolute top-2 ${isRTL ? 'right-2' : 'left-2'} bg-orange-600 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider`}>
-                    {t('offers.limited')}
+            {offers.map(offer => {
+              const originalPrice = offer.products?.reduce((sum, pid) => sum + (products.find(p => p.id === pid)?.price || 0), 0) || 0;
+              const hasSaving = originalPrice > offer.price;
+              
+              return (
+                <motion.div
+                  key={offer.id}
+                  initial={{ opacity: 0, x: isRTL ? 20 : -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  onClick={() => {
+                    if (!isRestaurantOpen) {
+                      toast.error(t('menu.closed_now'));
+                      return;
+                    }
+                    addOffer(offer);
+                    toast.success(t('product.added').replace('{name}', offer.title));
+                  }}
+                  className="min-w-[300px] md:min-w-[400px] bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 flex flex-col md:flex-row cursor-pointer hover:shadow-md transition-shadow active:scale-[0.98]"
+                >
+                  <div className="h-40 md:h-auto md:w-1/3 relative">
+                    <img 
+                      src={offer.imageUrl || 'https://picsum.photos/seed/offer/400/300'} 
+                      alt={offer.title} 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className={`absolute top-2 ${isRTL ? 'right-2' : 'left-2'} flex flex-col gap-1`}>
+                      <div className="bg-orange-600 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">
+                        {t('offers.limited')}
+                      </div>
+                      {hasSaving && (
+                        <div className="bg-green-600 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider text-center">
+                          {Math.round(((originalPrice - offer.price) / originalPrice) * 100)}% {t('admin.coupons_discount') || 'OFF'}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="p-4 flex-1 flex flex-col justify-center">
-                  <h3 className="font-bold text-gray-900 mb-1">{offer.title}</h3>
-                  <p className="text-sm text-gray-500 line-clamp-2">{offer.description}</p>
-                </div>
-              </motion.div>
-            ))}
+                  <div className="p-4 flex-1 flex flex-col justify-center">
+                    <h3 className="font-bold text-gray-900 mb-1">{offer.title}</h3>
+                    <p className="text-xs text-gray-500 line-clamp-2 mb-2">{offer.description}</p>
+                    {offer.productNames && offer.productNames.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {offer.productNames.map((name, i) => (
+                          <span key={i} className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-orange-600">{offer.price} {t('common.currency')}</span>
+                      {hasSaving && (
+                        <span className="text-xs text-gray-400 line-through">{originalPrice} {t('common.currency')}</span>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -345,11 +464,33 @@ const MenuPage: React.FC = () => {
                     </div>
                     
                     <div className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-lg font-bold text-gray-900 line-clamp-1">{product.name}</h3>
-                        <span className="text-orange-600 font-bold whitespace-nowrap">{product.price} {t('common.currency')}</span>
+                      <div className={`flex justify-between items-start mb-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                        <div className={isRTL ? 'text-right' : 'text-left'}>
+                          <h3 className="text-lg font-bold text-gray-900 group-hover:text-orange-600 transition-colors line-clamp-1">{product.name}</h3>
+                          {product.sizes && product.sizes.length > 0 ? (
+                            <div className={`flex flex-wrap gap-1 mt-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                              {product.sizes.map((s, idx) => (
+                                <span key={idx} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md font-bold border border-gray-200">
+                                  {s.label}: {s.price}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-gray-400 line-clamp-1 font-medium">{product.ingredients || product.description}</p>
+                          )}
+                        </div>
+                        <div className={`text-orange-600 font-bold whitespace-nowrap ${isRTL ? 'mr-2' : 'ml-2'}`}>
+                          {product.sizes && product.sizes.length > 0 && (
+                            <span className="text-[9px] text-gray-400 block font-normal leading-none mb-1 text-center font-sans tracking-tight">
+                              {t('product.starting_from') || 'Starting from'}
+                            </span>
+                          )}
+                          <div className={`flex items-baseline gap-0.5 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                            <span className="text-lg tabular-nums">{product.price}</span>
+                            <span className="text-[10px] font-medium">{t('common.currency')}</span>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-gray-500 text-sm mb-4 line-clamp-2 h-10">{product.description}</p>
                       
                       {product.isAvailable && isRestaurantOpen && (
                         <div className="flex items-center justify-between">
@@ -357,7 +498,7 @@ const MenuPage: React.FC = () => {
                             <div className="flex items-center gap-3 bg-gray-100 rounded-full px-3 py-1">
                               <button 
                                 onClick={() => {
-                                  updateQuantity(product.id, cartItem.quantity - 1);
+                                  updateQuantity(product.id.toString(), cartItem.quantity - 1);
                                   if (cartItem.quantity === 1) toast.error(t('product.removed'));
                                 }}
                                 className="p-1 hover:bg-white rounded-full transition-colors"
@@ -366,7 +507,7 @@ const MenuPage: React.FC = () => {
                               </button>
                               <span className="font-bold text-gray-900 min-w-[20px] text-center">{cartItem.quantity}</span>
                               <button 
-                                onClick={() => updateQuantity(product.id, cartItem.quantity + 1)}
+                                onClick={() => updateQuantity(product.id.toString(), cartItem.quantity + 1)}
                                 className="p-1 hover:bg-white rounded-full transition-colors"
                               >
                                 <Plus size={18} className="text-orange-600" />
@@ -374,10 +515,7 @@ const MenuPage: React.FC = () => {
                             </div>
                           ) : (
                             <button
-                              onClick={() => {
-                                addItem({ ...product, quantity: 1 });
-                                toast.success(t('product.added').replace('{name}', product.name));
-                              }}
+                              onClick={() => handleAddItem(product)}
                               className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-xl font-bold transition-colors"
                             >
                               <Plus size={20} />
@@ -428,7 +566,7 @@ const MenuPage: React.FC = () => {
 
               <div className="h-64 relative">
                 <img 
-                  src={selectedProduct.imageUrl} 
+                  src={selectedProduct.imageUrl || 'https://picsum.photos/seed/food/400/300'} 
                   alt={selectedProduct.name} 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
@@ -465,19 +603,25 @@ const MenuPage: React.FC = () => {
 
                 {selectedProduct.isAvailable ? (
                   <div className="flex items-center gap-4">
-                    {(items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id) ? (
+                    {items.find(i => i.originalId === selectedProduct.id || i.id === selectedProduct.id.toString()) ? (
                       <div className="flex-1 flex items-center justify-between bg-gray-100 rounded-2xl p-2">
                         <button 
-                          onClick={() => updateQuantity(selectedProduct.id.toString(), ((items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id)?.quantity || 0) - 1)}
+                          onClick={() => {
+                            const item = items.find(i => i.originalId === selectedProduct.id || i.id === selectedProduct.id.toString());
+                            if (item) updateQuantity(item.id, item.quantity - 1);
+                          }}
                           className="w-12 h-12 flex items-center justify-center bg-white rounded-xl shadow-sm hover:bg-orange-50 transition-colors"
                         >
                           <Minus size={20} className="text-orange-600" />
                         </button>
                         <span className="font-bold text-xl text-gray-900">
-                          {(items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id)?.quantity}
+                          {items.find(i => i.originalId === selectedProduct.id || i.id === selectedProduct.id.toString())?.quantity}
                         </span>
                         <button 
-                          onClick={() => updateQuantity(selectedProduct.id.toString(), ((items || []).find(i => i.id === selectedProduct.id.toString() || i.id === selectedProduct.id)?.quantity || 0) + 1)}
+                          onClick={() => {
+                            const item = items.find(i => i.originalId === selectedProduct.id || i.id === selectedProduct.id.toString());
+                            if (item) updateQuantity(item.id, item.quantity + 1);
+                          }}
                           className="w-12 h-12 flex items-center justify-center bg-white rounded-xl shadow-sm hover:bg-orange-50 transition-colors"
                         >
                           <Plus size={20} className="text-orange-600" />
@@ -486,7 +630,7 @@ const MenuPage: React.FC = () => {
                     ) : (
                       <button
                         onClick={() => {
-                          addItem({ ...selectedProduct, quantity: 1 });
+                          handleAddItem(selectedProduct);
                         }}
                         className="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2"
                       >
@@ -500,6 +644,40 @@ const MenuPage: React.FC = () => {
                     {t('product.unavailable')}
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Size Selection Modal */}
+      <AnimatePresence>
+        {selectedProductForSize && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-6"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black text-gray-900">{selectedProductForSize.name}</h3>
+                <button onClick={() => setSelectedProductForSize(null)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+              <p className="text-gray-500 mb-6 text-sm font-medium">{t('product.select_size') || 'Select Size'}</p>
+              <div className="space-y-3">
+                {selectedProductForSize.sizes?.map((size, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleAddSizeItem(selectedProductForSize, size)}
+                    className="w-full p-4 bg-gray-50 hover:bg-orange-50 border-2 border-transparent hover:border-orange-500 rounded-2xl flex justify-between items-center transition-all group"
+                  >
+                    <span className="font-bold text-gray-700 group-hover:text-orange-700">{size.label}</span>
+                    <span className="font-black text-orange-600">{size.price} {t('common.currency')}</span>
+                  </button>
+                ))}
               </div>
             </motion.div>
           </div>

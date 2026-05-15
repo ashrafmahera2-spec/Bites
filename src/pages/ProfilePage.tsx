@@ -43,15 +43,20 @@ const ProfilePage: React.FC = () => {
 
     const fetchData = async () => {
       try {
-        const [ordersData, profileData] = await Promise.all([
-          api.getCustomerOrders(user.phone),
-          api.getCustomerProfile(user.phone)
-        ]);
-        setOrders(ordersData);
+        const profileData = await api.getCustomerProfile(user.phone, user.id);
         setCustomerData(profileData);
-      } catch (error) {
+        
+        // Use the actual phone from profile for fetching orders
+        const ordersData = await api.getCustomerOrders(profileData.phone || user.phone);
+        setOrders(ordersData);
+      } catch (error: any) {
         console.error("Error fetching profile data:", error);
-        toast.error(t('admin.customers_fetch_error'));
+        if (error.message.toLowerCase().includes('customer not found')) {
+          logout();
+          navigate('/login');
+        } else {
+          toast.error(t('admin.customers_fetch_error'));
+        }
       } finally {
         setLoading(false);
       }

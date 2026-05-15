@@ -164,7 +164,11 @@ export const api = {
     }
   },
   async getOffers() {
-    return request('/api/offers');
+    const data = await request('/api/offers');
+    return (Array.isArray(data) ? data : []).map((offer: any) => ({
+      ...offer,
+      products: typeof offer.products === 'string' ? JSON.parse(offer.products) : (offer.products || [])
+    }));
   },
   async addOffer(offer: any) {
     return request('/api/offers', {
@@ -295,14 +299,17 @@ export const api = {
     });
   },
   async getCustomerOrders(phone: string) {
-    const data = await request(`/api/customers/orders?phone=${phone}`);
+    const data = await request(`/api/customers/orders?phone=${encodeURIComponent(phone)}`);
     return (Array.isArray(data) ? data : []).map((order: any) => ({
       ...order,
       items: typeof order.items === 'string' ? JSON.parse(order.items) : order.items
     }));
   },
-  async getCustomerProfile(phone: string) {
-    return request(`/api/customers/profile?phone=${phone}`);
+  async getCustomerProfile(phone: string, id?: string | number) {
+    const url = id 
+      ? `/api/customers/profile?id=${id}&phone=${encodeURIComponent(phone)}`
+      : `/api/customers/profile?phone=${encodeURIComponent(phone)}`;
+    return request(url);
   },
   async getPwaSettings() {
     return request('/api/settings/pwa');
@@ -313,5 +320,36 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
+  },
+  async getPrinterSettings() {
+    return request('/api/printer-settings');
+  },
+  async updatePrinterSettings(settings: any) {
+    return request('/api/printer-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+  },
+  async getTables(branchId?: string | number) {
+    const url = branchId ? `/api/tables?branchId=${branchId}` : '/api/tables';
+    return request(url);
+  },
+  async addTable(table: any) {
+    return request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(table)
+    });
+  },
+  async updateTable(id: string | number, table: any) {
+    return request(`/api/tables/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(table)
+    });
+  },
+  async deleteTable(id: string | number) {
+    return request(`/api/tables/${id}`, { method: 'DELETE' });
   }
 };

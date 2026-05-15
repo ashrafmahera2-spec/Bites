@@ -38,7 +38,7 @@ const Navbar: React.FC = () => {
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 group">
           <div className="bg-orange-600 p-2 rounded-xl shadow-lg shadow-orange-600/20 group-hover:scale-110 transition-transform w-10 h-10 flex items-center justify-center overflow-hidden">
-            {settings.logoUrl ? (
+            {settings.logoUrl && settings.logoUrl.trim() !== '' ? (
               <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
             ) : (
               <ShoppingBag size={24} className="text-white" />

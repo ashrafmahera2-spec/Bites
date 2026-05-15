@@ -3,7 +3,7 @@ import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X, Building2, Printer } from 'lucide-react';
+import { Trash2, Plus, Minus, Send, MapPin, Truck, Store, CreditCard, Wallet, Banknote, ShoppingBag, CheckCircle2, X, Building2, Printer, UtensilsCrossed } from 'lucide-react';
 import { api } from '../services/api';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -38,6 +38,7 @@ interface Settings {
       minPointsToRedeem: number;
     };
   };
+  tables?: { id: string; name: string }[];
 }
 
 interface Branch {
@@ -52,12 +53,22 @@ interface Branch {
 import { printOrder } from '../lib/printUtils';
 
 const CartPage: React.FC = () => {
-  const { items, updateQuantity, removeItem, total, clearCart, branchId, setBranchId } = useCart();
+  const { 
+    items, 
+    updateQuantity, 
+    removeItem, 
+    total, 
+    clearCart, 
+    branchId, 
+    setBranchId, 
+    orderType: ctxOrderType, 
+    tableNumber: ctxTableNumber 
+  } = useCart();
   const { t, isRTL, language } = useLanguage();
   const { user, isCustomer } = useAuth();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery');
+  const [orderType, setOrderType] = useState<'delivery' | 'pickup' | 'dine_in'>('delivery');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'instapay' | 'card' | 'wallet'>('cash');
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -69,8 +80,14 @@ const CartPage: React.FC = () => {
     name: '',
     phone: '',
     address: '',
-    notes: ''
+    notes: '',
+    tableNumber: ''
   });
+
+  useEffect(() => {
+    if (ctxOrderType) setOrderType(ctxOrderType as any);
+    if (ctxTableNumber) setCustomerInfo(prev => ({ ...prev, tableNumber: ctxTableNumber }));
+  }, [ctxOrderType, ctxTableNumber]);
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
@@ -206,6 +223,7 @@ const CartPage: React.FC = () => {
     if (!customerInfo.phone.trim()) newErrors.phone = t('cart.phone_required');
     if (customerInfo.phone.trim() && !/^\d{10,15}$/.test(customerInfo.phone.trim())) newErrors.phone = t('cart.phone_invalid');
     if (orderType === 'delivery' && !customerInfo.address.trim()) newErrors.address = t('cart.address_required');
+    if (orderType === 'dine_in' && !customerInfo.tableNumber.trim()) newErrors.tableNumber = t('admin.tables_name');
     if (paymentMethod === 'wallet' && !screenshot) newErrors.screenshot = t('cart.screenshot_required');
     
     setErrors(newErrors);
@@ -249,9 +267,16 @@ const CartPage: React.FC = () => {
       const orderData = {
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone,
-        address: orderType === 'delivery' ? customerInfo.address : t('cart.pickup_location'),
+        address: orderType === 'delivery' ? customerInfo.address : (orderType === 'pickup' ? t('cart.pickup_location') : t('admin.type_dine_in')),
         type: orderType,
-        items: items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
+        tableNumber: orderType === 'dine_in' ? customerInfo.tableNumber : null,
+        items: items.map(i => ({ 
+          name: i.name, 
+          quantity: i.quantity, 
+          price: i.price, 
+          subItems: i.subItems,
+          selectedSize: i.selectedSize
+        })),
         subtotal,
         discount: finalDiscount,
         pointsDiscount,
@@ -287,8 +312,13 @@ const CartPage: React.FC = () => {
           if (branch) message += `*${t('cart.branch_label')}:* ${branch.name}\n`;
         }
 
-        message += `*${t('cart.order_type')}:* ${orderType === 'delivery' ? t('cart.delivery_type') : t('cart.pickup_type')}\n`;
+        const typeLabel = orderType === 'delivery' ? t('cart.delivery_type') : 
+                        (orderType === 'pickup' ? t('cart.pickup_type') : t('admin.type_dine_in'));
+        message += `*${t('cart.order_type')}:* ${typeLabel}\n`;
+        
         if (orderType === 'delivery') message += `*${t('cart.address')}:* ${customerInfo.address}\n`;
+        if (orderType === 'dine_in') message += `*${t('admin.tables_name')}:* ${customerInfo.tableNumber}\n`;
+        
         message += `*${t('cart.payment_method')}:* ${
           paymentMethod === 'cash' ? t('cart.cash_type') : 
           paymentMethod === 'instapay' ? t('cart.instapay_type') : 
@@ -377,6 +407,11 @@ const CartPage: React.FC = () => {
                 />
                 <div className="flex-1">
                   <h3 className="font-bold text-gray-900">{item.name}</h3>
+                  {item.selectedSize && (
+                    <span className="inline-block bg-orange-50 text-orange-600 text-[10px] font-bold px-2 py-0.5 rounded-full mb-1">
+                      {item.selectedSize}
+                    </span>
+                  )}
                   <p className="text-orange-600 font-bold">{item.price} {t('common.currency')}</p>
                 </div>
                 <div className="flex items-center gap-3 bg-gray-100 rounded-full px-3 py-1">
@@ -422,7 +457,7 @@ const CartPage: React.FC = () => {
                     <Building2 className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400`} size={20} />
                     <select
                       className={`w-full p-3 ${isRTL ? 'pr-10' : 'pl-10'} rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none appearance-none bg-white font-medium`}
-                      value={branchId || ''}
+                      value={branchId ?? ''}
                       onChange={(e) => setBranchId(Number(e.target.value))}
                     >
                       {branches.map(b => (
@@ -434,36 +469,83 @@ const CartPage: React.FC = () => {
               )}
 
               {/* Order Type */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setOrderType('delivery')}
-                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                  className={`flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 transition-all ${
                     orderType === 'delivery' ? 'border-orange-600 bg-orange-50 text-orange-600' : 'border-gray-100 text-gray-500'
                   }`}
                 >
-                  <Truck size={20} />
-                  {t('cart.delivery')}
+                  <Truck size={18} />
+                  <span className="text-xs font-bold">{t('cart.delivery')}</span>
                 </button>
                 <button
                   onClick={() => setOrderType('pickup')}
-                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                  className={`flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 transition-all ${
                     orderType === 'pickup' ? 'border-orange-600 bg-orange-50 text-orange-600' : 'border-gray-100 text-gray-500'
                   }`}
                 >
-                  <Store size={20} />
-                  {t('cart.pickup')}
+                  <Store size={18} />
+                  <span className="text-xs font-bold">{t('cart.pickup')}</span>
+                </button>
+                <button
+                  onClick={() => setOrderType('dine_in')}
+                  className={`flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 transition-all ${
+                    orderType === 'dine_in' ? 'border-orange-600 bg-orange-50 text-orange-600' : 'border-gray-100 text-gray-500'
+                  }`}
+                >
+                  <UtensilsCrossed size={18} />
+                  <span className="text-xs font-bold">{t('admin.type_dine_in') || 'Dine-in'}</span>
                 </button>
               </div>
 
               {/* Customer Info */}
               <div className="space-y-3">
+                {orderType === 'dine_in' && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-bold text-gray-700">{t('admin.tables_name')}</p>
+                    {settings?.tables && settings.tables.length > 0 ? (
+                      <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                        {settings.tables.map(table => (
+                          <button
+                            key={table.id}
+                            type="button"
+                            onClick={() => {
+                              setCustomerInfo({ ...customerInfo, tableNumber: table.name });
+                              if (errors.tableNumber) setErrors({ ...errors, tableNumber: '' });
+                            }}
+                            className={`p-2 h-12 rounded-xl border-2 transition-all flex items-center justify-center font-bold text-sm ${
+                              customerInfo.tableNumber === table.name ? 'border-orange-600 bg-orange-50 text-orange-600 shadow-md' : 'border-gray-100 text-gray-500 hover:bg-gray-50'
+                            }`}
+                          >
+                            {table.name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <input
+                          type="text"
+                          placeholder={t('admin.tables_name')}
+                          className={`w-full p-3 rounded-xl border ${errors.tableNumber ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-orange-600 outline-none transition-all`}
+                          value={customerInfo.tableNumber || ''}
+                          onChange={e => {
+                            setCustomerInfo({ ...customerInfo, tableNumber: e.target.value });
+                            if (errors.tableNumber) setErrors({ ...errors, tableNumber: '' });
+                          }}
+                        />
+                      </div>
+                    )}
+                    {errors.tableNumber && <p className={`text-red-500 text-xs ${isRTL ? 'mr-2' : 'ml-2'}`}>{errors.tableNumber}</p>}
+                  </div>
+                )}
                 {settings?.features?.enablePoints && !customerData && (
                   <div className="flex gap-2">
                     <input
                       type="tel"
                       placeholder={t('cart.phone_placeholder')}
                       className="flex-1 p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none"
-                      value={customerInfo.phone}
+                      value={customerInfo.phone || ''}
                       onChange={e => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
                     />
                     <button
@@ -481,7 +563,7 @@ const CartPage: React.FC = () => {
                     type="text"
                     placeholder={t('cart.name_placeholder')}
                     className={`w-full p-3 rounded-xl border ${errors.name ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-orange-600 outline-none transition-all`}
-                    value={customerInfo.name}
+                    value={customerInfo.name || ''}
                     onChange={e => {
                       setCustomerInfo({ ...customerInfo, name: e.target.value });
                       if (errors.name) setErrors({ ...errors, name: '' });
@@ -509,7 +591,7 @@ const CartPage: React.FC = () => {
                       <textarea
                         placeholder={t('cart.address_placeholder')}
                         className={`w-full p-3 ${isRTL ? 'pr-10' : 'pl-10'} rounded-xl border ${errors.address ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-orange-600 outline-none min-h-[80px] transition-all`}
-                        value={customerInfo.address}
+                        value={customerInfo.address || ''}
                         onChange={e => {
                           setCustomerInfo({ ...customerInfo, address: e.target.value });
                           if (errors.address) setErrors({ ...errors, address: '' });
@@ -522,7 +604,7 @@ const CartPage: React.FC = () => {
                 <textarea
                   placeholder={t('cart.notes_placeholder')}
                   className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[60px]"
-                  value={customerInfo.notes}
+                  value={customerInfo.notes || ''}
                   onChange={e => setCustomerInfo({ ...customerInfo, notes: e.target.value })}
                 />
               </div>
@@ -726,6 +808,18 @@ const CartPage: React.FC = () => {
                   <div className="flex justify-between text-gray-600">
                     <span>{t('cart.delivery_fee')}</span>
                     <span>{activeDeliveryFee} {t('common.currency')}</span>
+                  </div>
+                )}
+                {taxAmount > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>{t('admin.settings_tax_label')}</span>
+                    <span>{taxAmount.toFixed(2)} {t('common.currency')}</span>
+                  </div>
+                )}
+                {serviceChargeAmount > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>{t('admin.settings_service_charge')}</span>
+                    <span>{serviceChargeAmount.toFixed(2)} {t('common.currency')}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-xl font-bold text-gray-900 pt-2">

@@ -11,6 +11,7 @@ interface StaffMember {
   name: string;
   username: string;
   role: 'admin' | 'staff' | 'cashier' | 'kitchen' | 'delivery';
+  permissions?: any;
   branchId?: number;
   isActive: boolean;
   createdAt: string;
@@ -20,6 +21,18 @@ interface Branch {
   id: number;
   name: string;
 }
+
+const ALL_PERMISSIONS = [
+  { id: 'dashboard', label: 'admin.dashboard' },
+  { id: 'orders', label: 'admin.orders_title' },
+  { id: 'cashier', label: 'admin.cashier_title' },
+  { id: 'kitchen', label: 'admin.kitchen_title' },
+  { id: 'delivery', label: 'admin.delivery_title' },
+  { id: 'products', label: 'admin.menu' },
+  { id: 'users', label: 'admin.staff_management' },
+  { id: 'settings', label: 'admin.settings_title' },
+  { id: 'reports', label: 'admin.reports_title' },
+];
 
 export default function AdminStaff() {
   const { t, isRTL } = useLanguage();
@@ -35,6 +48,7 @@ export default function AdminStaff() {
     username: '',
     password: '',
     role: 'staff' as 'admin' | 'staff' | 'cashier' | 'kitchen' | 'delivery',
+    permissions: {} as any,
     branchId: undefined as number | undefined,
     isActive: true
   });
@@ -56,13 +70,26 @@ export default function AdminStaff() {
   const fetchStaff = async () => {
     try {
       const data = await api.getStaff();
-      setStaff(Array.isArray(data) ? data : []);
+      setStaff((Array.isArray(data) ? data : []).map(s => ({
+        ...s,
+        permissions: typeof s.permissions === 'string' ? JSON.parse(s.permissions) : s.permissions
+      })));
     } catch (error) {
       console.error("Error fetching staff:", error);
       toast.error(t('admin.staff_fetch_error'));
     } finally {
       setLoading(false);
     }
+  };
+
+  const togglePermission = (permId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      permissions: {
+        ...prev.permissions,
+        [permId]: !prev.permissions[permId]
+      }
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -77,7 +104,7 @@ export default function AdminStaff() {
       }
       setIsAdding(false);
       setEditingId(null);
-      setFormData({ name: '', username: '', password: '', role: 'staff', isActive: true });
+      setFormData({ name: '', username: '', password: '', role: 'staff', permissions: {}, isActive: true });
       fetchStaff();
     } catch (error) {
       toast.error(t('admin.staff_save_error'));
@@ -104,6 +131,7 @@ export default function AdminStaff() {
       username: member.username,
       password: '',
       role: member.role,
+      permissions: member.permissions || {},
       branchId: member.branchId,
       isActive: member.isActive
     });
@@ -129,7 +157,7 @@ export default function AdminStaff() {
           onClick={() => {
             setIsAdding(!isAdding);
             setEditingId(null);
-            setFormData({ name: '', username: '', password: '', role: 'staff', isActive: true });
+            setFormData({ name: '', username: '', password: '', role: 'staff', permissions: {}, isActive: true });
           }}
           className="w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-xl font-bold flex items-center justify-center gap-2 transition-all"
         >
@@ -227,15 +255,42 @@ export default function AdminStaff() {
                   onClick={() => setFormData({ ...formData, isActive: !formData.isActive })}
                   className={`w-12 h-6 rounded-full transition-colors relative ${formData.isActive ? 'bg-green-500' : 'bg-gray-300'}`}
                 >
-                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${formData.isActive ? (isRTL ? 'left-7' : 'right-7') : (isRTL ? 'left-1' : 'right-1')}`} />
+                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${formData.isActive ? (isRTL ? 'left-1' : 'right-1') : (isRTL ? 'left-7' : 'right-7')}`} />
                 </button>
                 <span className="text-sm font-bold text-gray-600">{t('admin.staff_active_account')}</span>
               </div>
-              <div className="pt-6">
+
+              {formData.role !== 'admin' && (
+                <div className="space-y-3 col-span-full">
+                  <label className="text-sm font-bold text-gray-600 border-b border-gray-100 pb-2 block">
+                    {t('admin.staff_permissions')}
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    {ALL_PERMISSIONS.map(perm => (
+                      <button
+                        key={perm.id}
+                        type="button"
+                        onClick={() => togglePermission(perm.id)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
+                          formData.permissions[perm.id]
+                            ? 'bg-orange-50 border-orange-500 text-orange-600'
+                            : 'bg-gray-50 border-gray-100 text-gray-400 grayscale'
+                        }`}
+                      >
+                        {formData.permissions[perm.id] ? <Check size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-current" />}
+                        {t(perm.label)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-6 col-span-full">
                 <button
                   type="submit"
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-orange-200 transition-all"
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2"
                 >
+                  <Check size={20} />
                   {editingId ? t('admin.staff_update') : t('admin.staff_save')}
                 </button>
               </div>

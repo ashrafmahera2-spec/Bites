@@ -182,6 +182,7 @@ async function initDB(p: Pool) {
       ingredients TEXT,
       imageUrl TEXT,
       isAvailable BOOLEAN DEFAULT TRUE,
+      sizes JSON,
       FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE SET NULL
     )`,
     `CREATE TABLE IF NOT EXISTS branch_product_availability (
@@ -202,9 +203,13 @@ async function initDB(p: Pool) {
       customerPhone VARCHAR(20) NOT NULL,
       address TEXT NOT NULL,
       type VARCHAR(20) DEFAULT 'delivery',
+      tableNumber VARCHAR(50),
       items JSON NOT NULL,
       subtotal DECIMAL(10, 2) DEFAULT 0,
       discount DECIMAL(10, 2) DEFAULT 0,
+      taxAmount DECIMAL(10, 2) DEFAULT 0,
+      serviceChargeAmount DECIMAL(10, 2) DEFAULT 0,
+      deliveryFee DECIMAL(10, 2) DEFAULT 0,
       couponCode VARCHAR(50),
       pointsUsed INT DEFAULT 0,
       pointsValue DECIMAL(10, 2) DEFAULT 0,
@@ -222,6 +227,8 @@ async function initDB(p: Pool) {
       id INT AUTO_INCREMENT PRIMARY KEY,
       title VARCHAR(200) NOT NULL,
       description TEXT,
+      products JSON,
+      price DECIMAL(10, 2) DEFAULT 0,
       imageUrl TEXT,
       isActive BOOLEAN DEFAULT TRUE,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -274,6 +281,40 @@ async function initDB(p: Pool) {
     await p.query(query);
   }
 
+  // Migration: Add products and price to offers if they don't exist
+  try {
+    const [columns]: any = await p.query('SHOW COLUMNS FROM offers LIKE "products"');
+    if (columns.length === 0) {
+      console.log('Adding products and price columns to offers table...');
+      await p.query('ALTER TABLE offers ADD COLUMN products JSON AFTER description');
+      await p.query('ALTER TABLE offers ADD COLUMN price DECIMAL(10, 2) DEFAULT 0 AFTER products');
+    }
+  } catch (error) {
+    console.error('Migration error (offers columns):', error);
+  }
+
+  // Migration: Add tableNumber to orders if it doesn't exist
+  try {
+    const [columns]: any = await p.query('SHOW COLUMNS FROM orders LIKE "tableNumber"');
+    if (columns.length === 0) {
+      console.log('Adding tableNumber column to orders table...');
+      await p.query('ALTER TABLE orders ADD COLUMN tableNumber VARCHAR(50) AFTER type');
+    }
+  } catch (error) {
+    console.error('Migration error (orders tableNumber):', error);
+  }
+
+  // Migration: Add sizes column to products if it doesn't exist
+  try {
+    const [columns]: any = await p.query('SHOW COLUMNS FROM products LIKE "sizes"');
+    if (columns.length === 0) {
+      console.log('Adding sizes column to products table...');
+      await p.query('ALTER TABLE products ADD COLUMN sizes JSON AFTER isAvailable');
+    }
+  } catch (error) {
+    console.error('Migration error (products sizes):', error);
+  }
+
   // Migration: Add ingredients column if it doesn't exist
   try {
     const [columns]: any = await p.query('SHOW COLUMNS FROM products LIKE "ingredients"');
@@ -319,6 +360,19 @@ async function initDB(p: Pool) {
     }
   } catch (error) {
     console.error('Migration error (order details):', error);
+  }
+
+  // Migration: Add tax, service charge, and delivery fee to orders if they don't exist
+  try {
+    const [columns]: any = await p.query('SHOW COLUMNS FROM orders LIKE "taxAmount"');
+    if (columns.length === 0) {
+      console.log('Adding taxAmount, serviceChargeAmount, deliveryFee columns to orders table...');
+      await p.query('ALTER TABLE orders ADD COLUMN taxAmount DECIMAL(10, 2) DEFAULT 0 AFTER discount');
+      await p.query('ALTER TABLE orders ADD COLUMN serviceChargeAmount DECIMAL(10, 2) DEFAULT 0 AFTER taxAmount');
+      await p.query('ALTER TABLE orders ADD COLUMN deliveryFee DECIMAL(10, 2) DEFAULT 0 AFTER serviceChargeAmount');
+    }
+  } catch (error) {
+    console.error('Migration error (tax details):', error);
   }
 
   // Migration: Add branchId to staff if it doesn't exist
@@ -595,7 +649,7 @@ async function startServer() {
 
   app.post('/api/offers', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
-    const { title, description, imageUrl, isActive } = req.body;
+    const { title, description, products, price, imageUrl, isActive } = req.body;
     
     if (!p) {
       const data = await getJsonData();
@@ -603,6 +657,8 @@ async function startServer() {
         id: Date.now(),
         title,
         description,
+        products: products || [],
+        price: price || 0,
         imageUrl,
         isActive: isActive ?? true,
         createdAt: new Date().toISOString()
@@ -613,22 +669,22 @@ async function startServer() {
     }
     
     const [result]: any = await p.query(
-      'INSERT INTO offers (title, description, imageUrl, isActive) VALUES (?, ?, ?, ?)',
-      [title, description, imageUrl, isActive ?? true]
+      'INSERT INTO offers (title, description, products, price, imageUrl, isActive) VALUES (?, ?, ?, ?, ?, ?)',
+      [title, description, JSON.stringify(products || []), price || 0, imageUrl, isActive ?? true]
     );
-    res.json({ id: result.insertId, title, description, imageUrl, isActive: isActive ?? true });
+    res.json({ id: result.insertId, title, description, products: products || [], price: price || 0, imageUrl, isActive: isActive ?? true });
   }));
 
   app.put('/api/offers/:id', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
     const { id } = req.params;
-    const { title, description, imageUrl, isActive } = req.body;
+    const { title, description, products, price, imageUrl, isActive } = req.body;
     
     if (!p) {
       const data = await getJsonData();
       const index = data.offers.findIndex((o: any) => o.id == id);
       if (index !== -1) {
-        data.offers[index] = { ...data.offers[index], title, description, imageUrl, isActive };
+        data.offers[index] = { ...data.offers[index], title, description, products, price, imageUrl, isActive };
         await saveJsonData(data);
         return res.json(data.offers[index]);
       }
@@ -636,10 +692,10 @@ async function startServer() {
     }
     
     await p.query(
-      'UPDATE offers SET title = ?, description = ?, imageUrl = ?, isActive = ? WHERE id = ?',
-      [title, description, imageUrl, isActive, id]
+      'UPDATE offers SET title = ?, description = ?, products = ?, price = ?, imageUrl = ?, isActive = ? WHERE id = ?',
+      [title, description, JSON.stringify(products || []), price || 0, imageUrl, isActive, id]
     );
-    res.json({ id, title, description, imageUrl, isActive });
+    res.json({ id, title, description, products, price, imageUrl, isActive });
   }));
 
   app.delete('/api/offers/:id', asyncHandler(async (req: any, res: any) => {
@@ -659,7 +715,7 @@ async function startServer() {
 
   app.post('/api/products', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
-    const { name, price, categoryId, description, ingredients, imageUrl, isAvailable } = req.body;
+    const { name, price, categoryId, description, ingredients, imageUrl, isAvailable, sizes } = req.body;
     
     if (!p) {
       const data = await getJsonData();
@@ -671,7 +727,8 @@ async function startServer() {
         description,
         ingredients,
         imageUrl,
-        isAvailable: isAvailable ?? true
+        isAvailable: isAvailable ?? true,
+        sizes: sizes || []
       };
       data.products.push(newProduct);
       await saveJsonData(data);
@@ -679,21 +736,21 @@ async function startServer() {
     }
     
     await p.query(
-      'INSERT INTO products (name, price, categoryId, description, ingredients, imageUrl, isAvailable) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, price, categoryId, description, ingredients, imageUrl, isAvailable]
+      'INSERT INTO products (name, price, categoryId, description, ingredients, imageUrl, isAvailable, sizes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, price, categoryId, description, ingredients, imageUrl, isAvailable, JSON.stringify(sizes || [])]
     );
     res.json({ success: true });
   }));
 
   app.put('/api/products/:id', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
-    const { name, price, categoryId, description, ingredients, imageUrl, isAvailable } = req.body;
+    const { name, price, categoryId, description, ingredients, imageUrl, isAvailable, sizes } = req.body;
     
     if (!p) {
       const data = await getJsonData();
       const index = data.products.findIndex((p: any) => p.id.toString() === req.params.id);
       if (index !== -1) {
-        data.products[index] = { ...data.products[index], name, price, categoryId, description, ingredients, imageUrl, isAvailable };
+        data.products[index] = { ...data.products[index], name, price, categoryId, description, ingredients, imageUrl, isAvailable, sizes: sizes || [] };
         await saveJsonData(data);
         return res.json({ success: true });
       }
@@ -701,8 +758,8 @@ async function startServer() {
     }
     
     await p.query(
-      'UPDATE products SET name = ?, price = ?, categoryId = ?, description = ?, ingredients = ?, imageUrl = ?, isAvailable = ? WHERE id = ?',
-      [name, price, categoryId, description, ingredients, imageUrl, isAvailable, req.params.id]
+      'UPDATE products SET name = ?, price = ?, categoryId = ?, description = ?, ingredients = ?, imageUrl = ?, isAvailable = ?, sizes = ? WHERE id = ?',
+      [name, price, categoryId, description, ingredients, imageUrl, isAvailable, JSON.stringify(sizes || []), req.params.id]
     );
     res.json({ success: true });
   }));
@@ -815,7 +872,27 @@ async function startServer() {
 
   app.post('/api/orders', asyncHandler(async (req: any, res: any) => {
     const p = await getPool();
-    const { customerName, customerPhone, address, items, total, subtotal, discount, paymentMethod, type, screenshot, status, branchId, couponCode, pointsUsed, pointsValue } = req.body;
+    const { 
+      customerName, 
+      customerPhone, 
+      address, 
+      items, 
+      total, 
+      subtotal, 
+      discount, 
+      taxAmount,
+      serviceChargeAmount,
+      deliveryFee,
+      paymentMethod, 
+      type, 
+      tableNumber,
+      screenshot, 
+      status, 
+      branchId, 
+      couponCode, 
+      pointsUsed, 
+      pointsValue 
+    } = req.body;
     
     if (!p) {
       const data = await getJsonData();
@@ -828,8 +905,12 @@ async function startServer() {
         total,
         subtotal: subtotal || total,
         discount: discount || 0,
+        taxAmount: taxAmount || 0,
+        serviceChargeAmount: serviceChargeAmount || 0,
+        deliveryFee: deliveryFee || 0,
         paymentMethod,
         type,
+        tableNumber,
         screenshot,
         branchId,
         couponCode,
@@ -866,8 +947,28 @@ async function startServer() {
       await connection.beginTransaction();
 
       const [result]: any = await connection.query(
-        'INSERT INTO orders (customerName, customerPhone, address, items, subtotal, discount, couponCode, pointsUsed, pointsValue, total, paymentMethod, type, screenshot, status, branchId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [customerName, customerPhone, address, JSON.stringify(items), subtotal || total, discount || 0, couponCode || null, pointsUsed || 0, pointsValue || 0, total, paymentMethod, type, screenshot, status || 'pending', branchId]
+        'INSERT INTO orders (customerName, customerPhone, address, items, subtotal, discount, taxAmount, serviceChargeAmount, deliveryFee, couponCode, pointsUsed, pointsValue, total, paymentMethod, type, tableNumber, screenshot, status, branchId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          customerName, 
+          customerPhone, 
+          address, 
+          JSON.stringify(items), 
+          subtotal || total, 
+          discount || 0, 
+          taxAmount || 0,
+          serviceChargeAmount || 0,
+          deliveryFee || 0,
+          couponCode || null, 
+          pointsUsed || 0, 
+          pointsValue || 0, 
+          total, 
+          paymentMethod, 
+          type,
+          tableNumber || null,
+          screenshot, 
+          status || 'pending', 
+          branchId
+        ]
       );
 
       // Handle Points deduction

@@ -10,6 +10,7 @@ interface Category {
   id: string;
   name: string;
   order: number;
+  printerName?: string;
 }
 
 const AdminCategories: React.FC = () => {
@@ -21,7 +22,8 @@ const AdminCategories: React.FC = () => {
   const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    order: 0
+    order: 0,
+    printerName: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -51,7 +53,7 @@ const AdminCategories: React.FC = () => {
       }
       setIsModalOpen(false);
       setEditingCategory(null);
-      setFormData({ name: '', order: categories.length });
+      setFormData({ name: '', order: categories.length, printerName: '' });
       fetchCategories();
     } catch (error) {
       console.error("Error saving category:", error);
@@ -121,7 +123,14 @@ const AdminCategories: React.FC = () => {
                   </div>
                   <div className={isRTL ? 'text-right' : 'text-left'}>
                     <h3 className="font-bold text-gray-900">{cat.name}</h3>
-                    <p className="text-xs text-gray-500">{t('admin.categories_order')}: {cat.order}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <p className="text-xs text-gray-500">{t('admin.categories_order')}: {cat.order}</p>
+                      {cat.printerName && (
+                        <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md font-bold uppercase">
+                          {cat.printerName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -177,6 +186,17 @@ const AdminCategories: React.FC = () => {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.categories_printer_label')}</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Kitchen, Bar, Grill"
+                    className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                    value={formData.printerName}
+                    onChange={e => setFormData({ ...formData, printerName: e.target.value })}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">{t('admin.categories_printer_hint')}</p>
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.categories_order_label')}</label>
                   <input
                     required
@@ -188,7 +208,7 @@ const AdminCategories: React.FC = () => {
                 </div>
                 <button
                   type="submit"
-                  className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all"
+                  className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all font-bold"
                 >
                   {editingCategory ? t('admin.categories_save') : t('admin.categories_add')}
                 </button>

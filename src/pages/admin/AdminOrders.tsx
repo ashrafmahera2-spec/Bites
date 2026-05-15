@@ -16,18 +16,22 @@ interface Order {
   customerName: string;
   customerPhone: string;
   address: string;
-  items: { name: string; quantity: number; price: number }[];
+  tableNumber?: string | null;
+  items: { name: string; quantity: number; price: number; subItems?: string[] }[];
   total: number;
-  type: 'delivery' | 'pickup';
+  type: 'delivery' | 'pickup' | 'dine_in';
   paymentMethod: string;
   screenshot?: string | null;
-  status: 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled';
+  status: 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled' | 'delivering';
   branchId?: number;
   couponCode?: string;
   pointsUsed?: number;
   pointsValue?: number;
   subtotal?: number;
   discount?: number;
+  taxAmount?: number;
+  serviceChargeAmount?: number;
+  deliveryFee?: number;
   deliveryBoyId?: number;
   createdAt: string;
 }
@@ -85,6 +89,8 @@ const AdminOrders: React.FC = () => {
   };
 
   const [settings, setSettings] = useState<any>(null);
+  const [printOrderData, setPrintOrderData] = useState<Order | null>(null);
+  const [categories, setCategories] = useState<any[]>([]);
 
   const fetchSettings = async () => {
     try {
@@ -92,6 +98,15 @@ const AdminOrders: React.FC = () => {
       setSettings(data);
     } catch (error) {
       console.error("Error fetching settings:", error);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const data = await api.getCategories();
+      setCategories(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
     }
   };
 
@@ -109,6 +124,7 @@ const AdminOrders: React.FC = () => {
     fetchBranches();
     fetchSettings();
     fetchDeliveryBoys();
+    fetchCategories();
     const interval = setInterval(fetchOrders, 10000);
     return () => clearInterval(interval);
   }, [prevOrderCount, selectedBranchId]);
@@ -143,6 +159,14 @@ const AdminOrders: React.FC = () => {
     }
   };
 
+  const handlePrintResult = (type: 'invoice' | 'kitchen' | 'both') => {
+    if (printOrderData) {
+      const branchName = branches.find(b => b.id === printOrderData.branchId)?.name;
+      printOrder({ ...printOrderData, branchName }, settings, t, isRTL, { type }, categories);
+      setPrintOrderData(null);
+    }
+  };
+
   const copyOrderDetails = (order: Order) => {
     const details = `
 ${t('admin.orders_new_alert')} #${order.id.toString().slice(-6)}
@@ -162,8 +186,10 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
     toast.success(t('admin.orders_details_copied'));
   };
 
-  const printInvoice = (order: Order) => {
-    printOrder(order, settings, t, isRTL);
+  const printInvoice = (order: Order, type: 'invoice' | 'kitchen' | 'both' = 'invoice') => {
+    const branchName = branches.find(b => b.id === order.branchId)?.name;
+    printOrder({ ...order, branchName }, settings, t, isRTL, { type }, categories);
+    setPrintOrderData(null);
   };
 
   const handleAssignDelivery = async (orderId: string, deliveryBoyId: number) => {
@@ -208,6 +234,65 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
         message={t('admin.orders_confirm_delete')}
         type="danger"
       />
+
+      {/* Print Options Modal */}
+      <AnimatePresence>
+        {printOrderData && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8 text-center overflow-hidden relative"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-orange-500"></div>
+              <button 
+                onClick={() => setPrintOrderData(null)}
+                className={`absolute top-4 ${isRTL ? 'left-4' : 'right-4'} p-2 hover:bg-gray-100 rounded-full transition-colors`}
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+
+              <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-6 text-orange-600">
+                <Printer size={32} />
+              </div>
+
+              <h3 className="text-xl font-black text-gray-800 mb-2">
+                {t('admin.cashier_print')}
+              </h3>
+              <p className="text-gray-500 mb-8 text-sm">
+                {t('admin.cashier_print_receipt_confirm')}
+              </p>
+
+              <div className="grid grid-cols-1 gap-3">
+                <button
+                  onClick={() => printInvoice(printOrderData, 'invoice')}
+                  className="w-full py-4 bg-gray-50 hover:bg-orange-50 rounded-2xl flex items-center justify-center gap-3 transition-all font-bold text-gray-700 border border-transparent hover:border-orange-200"
+                >
+                  <Printer size={18} className="text-orange-500" />
+                  {t('admin.cashier_print_invoice')}
+                </button>
+                
+                <button
+                  onClick={() => printInvoice(printOrderData, 'kitchen')}
+                  className="w-full py-4 bg-gray-50 hover:bg-orange-50 rounded-2xl flex items-center justify-center gap-3 transition-all font-bold text-gray-700 border border-transparent hover:border-orange-200"
+                >
+                  <Printer size={18} className="text-orange-500" />
+                  {t('admin.cashier_print_kitchen')}
+                </button>
+
+                <button
+                  onClick={() => printInvoice(printOrderData, 'both')}
+                  className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl flex items-center justify-center gap-3 transition-all font-bold shadow-lg shadow-orange-200"
+                >
+                  <Printer size={18} />
+                  {t('admin.cashier_print_both')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-900">{t('admin.orders_title')}</h2>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
@@ -300,12 +385,17 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                             {deliveryBoys.find(db => db.id === order.deliveryBoyId)?.name}
                           </span>
                         )}
-                        {order.type === 'delivery' && (
-                          <span className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
-                            <MapPin size={12} />
-                            {t('admin.orders_delivery_home')}
-                          </span>
-                        )}
+                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-lg ${
+                          order.type === 'delivery' ? 'bg-blue-50 text-blue-600' :
+                          order.type === 'dine_in' ? 'bg-orange-50 text-orange-600' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {order.type === 'delivery' ? <MapPin size={12} /> : 
+                           order.type === 'dine_in' ? <Building2 size={12} /> : 
+                           <MapPin size={12} />}
+                          {order.type === 'delivery' ? t('admin.orders_delivery_home') : 
+                           order.type === 'dine_in' ? t('admin.type_dine_in') : t('admin.orders_pickup_restaurant')}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -348,7 +438,7 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         <Copy size={18} />
                       </button>
                       <button
-                        onClick={() => printInvoice({ ...order, items })}
+                        onClick={() => setPrintOrderData({ ...order, items })}
                         className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
                         title={t('admin.orders_print_invoice')}
                       >
@@ -376,10 +466,19 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                 <div className={isRTL ? 'text-right' : 'text-left'}>
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">{t('admin.orders_items_ordered')}</h4>
                   <ul className="space-y-3">
-                    {order.items.map((item, idx) => (
-                      <li key={idx} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl">
-                        <span className="font-medium text-gray-700">{item.name} <span className="text-xs text-gray-400">x{item.quantity}</span></span>
-                        <span className="font-bold text-gray-900">{item.price * item.quantity} {t('common.currency')}</span>
+                    {order.items.map((item: any, idx: number) => (
+                      <li key={idx} className="flex flex-col bg-gray-50 p-3 rounded-xl gap-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-gray-700">{item.name} <span className="text-xs text-gray-400">x{item.quantity}</span></span>
+                          <span className="font-bold text-gray-900">{item.price * item.quantity} {t('common.currency')}</span>
+                        </div>
+                        {item.subItems && item.subItems.length > 0 && (
+                          <div className={`text-[10px] text-gray-500 border-t border-gray-100 pt-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                            {item.subItems.map((si: string, sidx: number) => (
+                              <span key={sidx} className="inline-block mr-2">• {si}</span>
+                            ))}
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -396,6 +495,24 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         <span>-{order.pointsValue || 0} {t('common.currency')}</span>
                       </div>
                     )}
+                    {order.taxAmount > 0 && (
+                      <div className="flex justify-between items-center text-sm text-gray-600">
+                        <span>{t('admin.settings_tax_label')}</span>
+                        <span>{order.taxAmount} {t('common.currency')}</span>
+                      </div>
+                    )}
+                    {order.serviceChargeAmount > 0 && (
+                      <div className="flex justify-between items-center text-sm text-gray-600">
+                        <span>{t('admin.settings_service_charge')}</span>
+                        <span>{order.serviceChargeAmount} {t('common.currency')}</span>
+                      </div>
+                    )}
+                    {order.deliveryFee > 0 && (
+                      <div className="flex justify-between items-center text-sm text-gray-600">
+                        <span>{t('cart.delivery_fee')}</span>
+                        <span>{order.deliveryFee} {t('common.currency')}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-gray-900">{t('admin.orders_total')}</span>
                       <span className="text-xl font-bold text-orange-600">{order.total} {t('common.currency')}</span>
@@ -408,8 +525,13 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                   <div className="flex items-start gap-3 bg-gray-50 p-4 rounded-2xl">
                     <MapPin className="text-orange-600 mt-1" size={20} />
                     <div className={isRTL ? 'text-right' : 'text-left'}>
-                      <p className="text-sm font-bold text-gray-900">{order.type === 'delivery' ? t('admin.orders_delivery_home') : t('admin.orders_pickup_restaurant')}</p>
-                      <p className="text-sm text-gray-600 mt-1">{order.address}</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {order.type === 'delivery' ? t('admin.orders_delivery_home') : 
+                         order.type === 'dine_in' ? t('admin.type_dine_in') : t('admin.orders_pickup_restaurant')}
+                      </p>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {order.tableNumber ? `${t('admin.table_number') || 'Table'}: ${order.tableNumber}` : order.address}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 bg-gray-50 p-4 rounded-2xl">
@@ -423,12 +545,14 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                     <div className="space-y-2">
                       <h4 className={`text-xs font-bold text-gray-400 uppercase tracking-wider ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.orders_payment_screenshot')}</h4>
                       <div className="relative group cursor-pointer" onClick={() => window.open(order.screenshot!, '_blank')}>
-                        <img 
-                          src={order.screenshot} 
-                          alt="Payment Screenshot" 
-                          className="w-full h-40 object-cover rounded-2xl border border-gray-100 shadow-sm group-hover:opacity-90 transition-opacity" 
-                          referrerPolicy="no-referrer"
-                        />
+                        {order.screenshot && (
+                          <img 
+                            src={order.screenshot} 
+                            alt="Payment Screenshot" 
+                            className="w-full h-40 object-cover rounded-2xl border border-gray-100 shadow-sm group-hover:opacity-90 transition-opacity" 
+                            referrerPolicy="no-referrer"
+                          />
+                        )}
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-2xl">
                           <span className="bg-white text-gray-900 px-3 py-1 rounded-full text-xs font-bold shadow-lg">{t('admin.orders_open_image')}</span>
                         </div>
@@ -475,8 +599,12 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                     <div className={`space-y-2 ${isRTL ? 'text-right' : 'text-left'}`}>
                       <p className="text-sm"><span className="text-gray-500">{t('admin.orders_customer')}:</span> <span className="font-medium">{selectedOrder.customerName}</span></p>
                       <p className="text-sm"><span className="text-gray-500">{t('admin.orders_phone')}:</span> <span className="font-medium">{selectedOrder.customerPhone}</span></p>
-                      <p className="text-sm"><span className="text-gray-500">{t('admin.orders_address')}:</span> <span className="font-medium">{selectedOrder.address}</span></p>
-                      <p className="text-sm"><span className="text-gray-500">{t('admin.orders_type')}:</span> <span className="font-medium">{selectedOrder.type === 'delivery' ? t('admin.orders_delivery_home') : t('admin.orders_pickup_restaurant')}</span></p>
+                      {selectedOrder.tableNumber ? (
+                        <p className="text-sm font-bold text-orange-600"><span className="text-gray-500 font-normal">{t('admin.table_number') || 'Table'}:</span> {selectedOrder.tableNumber}</p>
+                      ) : (
+                        <p className="text-sm"><span className="text-gray-500">{t('admin.orders_address')}:</span> <span className="font-medium">{selectedOrder.address}</span></p>
+                      )}
+                      <p className="text-sm"><span className="text-gray-500">{t('admin.orders_type')}:</span> <span className="font-medium">{selectedOrder.type === 'delivery' ? t('admin.orders_delivery_home') : (selectedOrder.type === 'dine_in' ? t('admin.type_dine_in') : t('admin.orders_pickup_restaurant'))}</span></p>
                       <p className="text-sm"><span className="text-gray-500">{t('admin.orders_payment')}:</span> <span className="font-medium">{selectedOrder.paymentMethod}</span></p>
                     </div>
                   </div>
@@ -537,9 +665,16 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {selectedOrder.items.map((item, idx) => (
+                        {selectedOrder.items.map((item: any, idx: number) => (
                           <tr key={idx} className="text-sm">
-                            <td className={`px-4 py-3 font-medium ${isRTL ? 'text-right' : 'text-left'}`}>{item.name}</td>
+                            <td className={`px-4 py-3 font-medium ${isRTL ? 'text-right' : 'text-left'}`}>
+                              <div>{item.name}</div>
+                              {item.subItems && item.subItems.length > 0 && (
+                                <div className="text-[10px] text-gray-400 font-normal">
+                                  {item.subItems.join(' • ')}
+                                </div>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-center">{item.quantity}</td>
                             <td className="px-4 py-3 text-center">{item.price} {t('common.currency')}</td>
                             <td className={`px-4 py-3 font-bold ${isRTL ? 'text-left' : 'text-right'}`}>{item.price * item.quantity} {t('common.currency')}</td>
@@ -559,6 +694,24 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                             <td className={`px-4 py-2 ${isRTL ? 'text-left' : 'text-right'}`}>-{selectedOrder.pointsValue || 0} {t('common.currency')}</td>
                           </tr>
                         )}
+                        {selectedOrder.taxAmount > 0 && (
+                          <tr className="text-sm text-gray-600">
+                            <td colSpan={3} className={`px-4 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.settings_tax_label')}</td>
+                            <td className={`px-4 py-2 ${isRTL ? 'text-left' : 'text-right'}`}>{selectedOrder.taxAmount} {t('common.currency')}</td>
+                          </tr>
+                        )}
+                        {selectedOrder.serviceChargeAmount > 0 && (
+                          <tr className="text-sm text-gray-600">
+                            <td colSpan={3} className={`px-4 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.settings_service_charge')}</td>
+                            <td className={`px-4 py-2 ${isRTL ? 'text-left' : 'text-right'}`}>{selectedOrder.serviceChargeAmount} {t('common.currency')}</td>
+                          </tr>
+                        )}
+                        {selectedOrder.deliveryFee > 0 && (
+                          <tr className="text-sm text-gray-600">
+                            <td colSpan={3} className={`px-4 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('cart.delivery_fee')}</td>
+                            <td className={`px-4 py-2 ${isRTL ? 'text-left' : 'text-right'}`}>{selectedOrder.deliveryFee} {t('common.currency')}</td>
+                          </tr>
+                        )}
                         <tr>
                           <td colSpan={3} className={`px-4 py-3 text-gray-600 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.orders_final_total')}</td>
                           <td className={`px-4 py-3 text-orange-600 text-lg ${isRTL ? 'text-left' : 'text-right'}`}>{selectedOrder.total} {t('common.currency')}</td>
@@ -571,12 +724,14 @@ ${t('admin.orders_total')}: ${order.total} ${t('common.currency')}
                 {selectedOrder.screenshot && (
                   <div className="space-y-4">
                     <h4 className={`font-bold text-gray-900 border-b pb-2 ${isRTL ? 'text-right' : 'text-left'}`}>{t('admin.orders_payment_screenshot')}</h4>
+                  {selectedOrder.screenshot && (
                     <img 
                       src={selectedOrder.screenshot} 
                       alt="Payment" 
                       className="w-full rounded-2xl border border-gray-100 shadow-sm"
                       referrerPolicy="no-referrer"
                     />
+                  )}
                   </div>
                 )}
               </div>

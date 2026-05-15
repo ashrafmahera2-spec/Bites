@@ -11,12 +11,15 @@ interface Offer {
   title: string;
   description: string;
   imageUrl: string;
+  products: number[];
+  price: number;
   isActive: boolean;
 }
 
 const AdminOffers: React.FC = () => {
   const { t, isRTL } = useLanguage();
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,6 +29,8 @@ const AdminOffers: React.FC = () => {
     title: '',
     description: '',
     imageUrl: '',
+    products: [] as number[],
+    price: 0,
     isActive: true
   });
 
@@ -46,10 +51,14 @@ const AdminOffers: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const data = await api.getOffers();
-      setOffers(Array.isArray(data) ? data : []);
+      const [offersData, productsData] = await Promise.all([
+        api.getOffers(),
+        api.getProducts()
+      ]);
+      setOffers(Array.isArray(offersData) ? offersData : []);
+      setProducts(Array.isArray(productsData) ? productsData : []);
     } catch (error) {
-      console.error("Error fetching offers:", error);
+      console.error("Error fetching data:", error);
       setOffers([]);
     } finally {
       setLoading(false);
@@ -72,12 +81,19 @@ const AdminOffers: React.FC = () => {
       }
       setIsModalOpen(false);
       setEditingOffer(null);
-      setFormData({ title: '', description: '', imageUrl: '', isActive: true });
+      setFormData({ title: '', description: '', imageUrl: '', products: [], price: 0, isActive: true });
       fetchData();
     } catch (error) {
       console.error("Error saving offer:", error);
       toast.error(t('common.error'));
     }
+  };
+
+  const toggleProduct = (productId: number) => {
+    const newProducts = formData.products.includes(productId)
+      ? formData.products.filter(id => id !== productId)
+      : [...formData.products, productId];
+    setFormData({ ...formData, products: newProducts });
   };
 
   const handleDelete = async () => {
@@ -126,7 +142,7 @@ const AdminOffers: React.FC = () => {
           {t('admin.offers_title')}
         </h2>
         <button
-          onClick={() => { setEditingOffer(null); setFormData({ title: '', description: '', imageUrl: '', isActive: true }); setIsModalOpen(true); }}
+          onClick={() => { setEditingOffer(null); setFormData({ title: '', description: '', imageUrl: '', products: [], price: 0, isActive: true }); setIsModalOpen(true); }}
           className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-orange-700 transition-all"
         >
           <Plus size={20} />
@@ -146,7 +162,13 @@ const AdminOffers: React.FC = () => {
           offers.map(offer => (
             <div key={offer.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="relative h-40 rounded-xl overflow-hidden mb-4">
-                <img src={offer.imageUrl || 'https://picsum.photos/seed/offer/400/300'} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                {offer.imageUrl && offer.imageUrl.trim() !== '' ? (
+                  <img src={offer.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full bg-orange-50 flex items-center justify-center">
+                    <Tag className="w-8 h-8 text-orange-200" />
+                  </div>
+                )}
                 {!offer.isActive && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <span className="bg-red-600 text-white px-4 py-1 rounded-full text-xs font-bold">{t('admin.offers_inactive')}</span>
@@ -203,31 +225,68 @@ const AdminOffers: React.FC = () => {
                 </button>
               </div>
               <form onSubmit={handleSubmit} className={`p-6 space-y-4 ${isRTL ? 'text-right' : 'text-left'}`}>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.offers_label_title')}</label>
-                  <input
-                    required
-                    type="text"
-                    placeholder={t('admin.offers_placeholder_title')}
-                    className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
-                    value={formData.title}
-                    onChange={e => setFormData({ ...formData, title: e.target.value })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.offers_label_title')}</label>
+                    <input
+                      required
+                      type="text"
+                      placeholder={t('admin.offers_placeholder_title')}
+                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all ${isRTL ? 'text-right' : 'text-left'}`}
+                      value={formData.title}
+                      onChange={e => setFormData({ ...formData, title: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-sm font-bold text-gray-700">{t('admin.product_price')}</label>
+                      {formData.products.length > 0 && (
+                        <span className="text-[10px] text-gray-400">
+                          (Original: {formData.products.reduce((sum, pid) => sum + (products.find(p => p.id === pid)?.price || 0), 0)} {t('common.currency')})
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      required
+                      type="number"
+                      step="0.01"
+                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all ${isRTL ? 'text-right' : 'text-left'}`}
+                      value={formData.price}
+                      onChange={e => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.offers_label_desc')}</label>
                   <textarea
                     required
                     placeholder={t('admin.offers_placeholder_desc')}
-                    className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[100px] ${isRTL ? 'text-right' : 'text-left'}`}
+                    className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none min-h-[80px] ${isRTL ? 'text-right' : 'text-left'}`}
                     value={formData.description}
                     onChange={e => setFormData({ ...formData, description: e.target.value })}
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.products')}</label>
+                  <div className="max-h-40 overflow-y-auto p-3 rounded-xl border border-gray-200 space-y-2">
+                    {products.map(product => (
+                      <label key={product.id} className={`flex items-center gap-2 p-2 hover:bg-gray-50 rounded-lg cursor-pointer ${isRTL ? 'flex-row-reverse' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={formData.products.includes(product.id)}
+                          onChange={() => toggleProduct(product.id)}
+                          className="w-4 h-4 accent-orange-600"
+                        />
+                        <span className="text-sm font-medium">{product.name}</span>
+                        <span className="text-xs text-gray-500">({product.price} {t('common.currency')})</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.offers_label_image')}</label>
                   <div className="flex flex-col gap-3">
-                    {formData.imageUrl && (
+                    {formData.imageUrl && formData.imageUrl.trim() !== '' && (
                       <div className="relative w-full h-32 rounded-xl overflow-hidden border border-gray-200">
                         <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         <button 

@@ -8,7 +8,7 @@ import { api } from '../../services/api';
 import { toast } from 'sonner';
 
 const AdminDashboard: React.FC = () => {
-  const { logout, user } = useAuth();
+  const { logout, user, hasPermission } = useAuth();
   const { t, isRTL } = useLanguage();
   const { settings, refreshSettings } = useSettings();
   const location = useLocation();
@@ -72,7 +72,7 @@ const AdminDashboard: React.FC = () => {
       clearInterval(interval);
       clearTimeout(errorTimeout);
     };
-  }, [lastErrorId, t, user?.role, user?.branchId]);
+  }, [lastErrorId, t, user, prevPendingCount]);
 
   // Close mobile menu when location changes
   useEffect(() => {
@@ -80,25 +80,26 @@ const AdminDashboard: React.FC = () => {
   }, [location.pathname]);
 
   const menuItems = [
-    { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview'), roles: ['admin', 'staff', 'cashier', 'kitchen'] },
-    { path: '/admin/reports', icon: TrendingUp, label: t('admin.nav_reports'), roles: ['admin'] },
-    { path: '/admin/delivery', icon: Navigation, label: t('admin.nav_delivery'), roles: ['admin', 'delivery'] },
-    { path: '/admin/display', icon: Monitor, label: t('admin.nav_display'), roles: ['admin', 'cashier'] },
-    { path: '/admin/kitchen', icon: UtensilsCrossed, label: t('admin.nav_kitchen'), roles: ['admin', 'kitchen'] },
-    { path: '/admin/branches', icon: Building2, label: t('admin.nav_branches'), roles: ['admin'] },
-    { path: '/admin/cashier', icon: Calculator, label: t('admin.nav_cashier'), roles: ['admin', 'cashier'] },
-    { path: '/admin/orders', icon: ClipboardList, label: t('admin.nav_orders'), roles: ['admin', 'staff', 'cashier'] },
-    { path: '/admin/products', icon: Package, label: t('admin.nav_products'), roles: ['admin', 'staff'] },
-    { path: '/admin/categories', icon: List, label: t('admin.nav_categories'), roles: ['admin', 'staff'] },
-    { path: '/admin/offers', icon: Tag, label: t('admin.nav_offers'), roles: ['admin', 'staff'] },
-    { path: '/admin/coupons', icon: Ticket, label: t('admin.nav_coupons'), roles: ['admin'] },
-    { path: '/admin/customers', icon: Users, label: t('admin.nav_customers'), roles: ['admin'] },
-    { path: '/admin/staff', icon: UserPlus, label: t('admin.nav_staff'), roles: ['admin'] },
-    { path: '/admin/errors', icon: AlertTriangle, label: t('admin.nav_errors'), roles: ['admin'] },
-    { path: '/admin/pwa-install', icon: Smartphone, label: t('admin.settings_pwa_install') || 'Apps Install', roles: ['admin'] },
-    { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings'), roles: ['admin'] },
-    { path: '/admin/database', icon: Database, label: t('admin.nav_database'), roles: ['admin'] },
-  ];
+    { path: '/admin', icon: LayoutDashboard, label: t('admin.nav_overview'), permission: 'dashboard' },
+    { path: '/admin/reports', icon: TrendingUp, label: t('admin.nav_reports'), permission: 'reports' },
+    { path: '/admin/delivery', icon: Navigation, label: t('admin.nav_delivery'), permission: 'delivery' },
+    { path: '/admin/display', icon: Monitor, label: t('admin.nav_display'), permission: 'cashier' },
+    { path: '/admin/kitchen', icon: UtensilsCrossed, label: t('admin.nav_kitchen'), permission: 'kitchen' },
+    { path: '/admin/branches', icon: Building2, label: t('admin.nav_branches'), permission: 'settings' },
+    { path: '/admin/cashier', icon: Calculator, label: t('admin.nav_cashier'), permission: 'cashier' },
+    { path: '/admin/orders', icon: ClipboardList, label: t('admin.nav_orders'), permission: 'orders' },
+    { path: '/admin/products', icon: Package, label: t('admin.nav_products'), permission: 'products' },
+    { path: '/admin/categories', icon: List, label: t('admin.nav_categories'), permission: 'products' },
+    { path: '/admin/offers', icon: Tag, label: t('admin.nav_offers'), permission: 'products' },
+    { path: '/admin/coupons', icon: Ticket, label: t('admin.nav_coupons'), permission: 'settings' },
+    { path: '/admin/tables', icon: UtensilsCrossed, label: t('admin.tables_management'), permission: 'settings' },
+    { path: '/admin/customers', icon: Users, label: t('admin.nav_customers'), permission: 'settings' },
+    { path: '/admin/staff', icon: UserPlus, label: t('admin.nav_staff'), permission: 'users' },
+    { path: '/admin/errors', icon: AlertTriangle, label: t('admin.nav_errors'), permission: 'settings' },
+    { path: '/admin/pwa-install', icon: Smartphone, label: t('admin.settings_pwa_install') || 'Apps Install', permission: 'settings' },
+    { path: '/admin/settings', icon: Settings, label: t('admin.nav_settings'), permission: 'settings' },
+    { path: '/admin/database', icon: Database, label: t('admin.nav_database'), permission: 'settings' },
+  ].filter(item => hasPermission(item.permission));
 
   const [offlineCount, setOfflineCount] = useState(0);
 
@@ -127,8 +128,6 @@ const AdminDashboard: React.FC = () => {
       toast.error('Sync failed');
     }
   };
-
-  const filteredMenuItems = menuItems.filter(item => item.roles.includes(user?.role || ''));
 
   const [isStoreOpen, setIsStoreOpen] = useState(true);
 
@@ -170,7 +169,7 @@ const AdminDashboard: React.FC = () => {
             </Link>
 
             <nav className={`hidden lg:flex items-center gap-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
-              {filteredMenuItems.slice(0, 7).map(item => (
+              {menuItems.slice(0, 7).map(item => (
                 <Link
                   key={item.path}
                   to={item.path}
@@ -256,7 +255,7 @@ const AdminDashboard: React.FC = () => {
                     <div className={`w-2 h-2 rounded-full ${isStoreOpen ? 'bg-green-600 animate-pulse' : 'bg-red-600'}`} />
                   </div>
                 </button>
-                {filteredMenuItems.map(item => (
+                {menuItems.map(item => (
                   <Link
                     key={item.path}
                     to={item.path}
@@ -337,7 +336,7 @@ const AdminDashboard: React.FC = () => {
         </main>
 
         <nav className={`fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-2 flex justify-around items-center z-50 ${isRTL ? 'flex-row-reverse' : ''}`}>
-          {filteredMenuItems.slice(0, 5).map(item => (
+          {menuItems.slice(0, 5).map(item => (
             <Link
               key={item.path}
               to={item.path}
@@ -392,7 +391,7 @@ const AdminDashboard: React.FC = () => {
                     <div className={`w-2 h-2 rounded-full ${isStoreOpen ? 'bg-green-600 animate-pulse' : 'bg-red-600'}`} />
                   </div>
                 </button>
-                {filteredMenuItems.map(item => (
+                {menuItems.map(item => (
                   <Link
                     key={item.path}
                     to={item.path}
@@ -456,7 +455,7 @@ const AdminDashboard: React.FC = () => {
               </span>
             </button>
           )}
-          {filteredMenuItems.map(item => (
+          {menuItems.map(item => (
             <Link
               key={item.path}
               to={item.path}

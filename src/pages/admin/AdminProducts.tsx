@@ -17,6 +17,7 @@ interface Product {
   imageUrl: string;
   categoryId: string;
   isAvailable: boolean;
+  sizes?: { label: string; price: number }[];
 }
 
 interface Category {
@@ -36,6 +37,7 @@ const AdminProducts: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string | number>(user?.role === 'admin' ? 'all' : (user?.branchId || 'all'));
+  const [pricingMode, setPricingMode] = useState<'single' | 'multi'>('single');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -49,7 +51,8 @@ const AdminProducts: React.FC = () => {
     price: 0,
     imageUrl: '',
     categoryId: '',
-    isAvailable: true
+    isAvailable: true,
+    sizes: [] as { label: string; price: number }[]
   });
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,12 +72,16 @@ const AdminProducts: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const [prods, cats, brs] = await Promise.all([
+      const [prodsData, cats, brs] = await Promise.all([
         api.getProducts(selectedBranchId === 'all' ? undefined : selectedBranchId),
         api.getCategories(),
         api.getBranches()
       ]);
-      setProducts(Array.isArray(prods) ? prods : []);
+      const prods = Array.isArray(prodsData) ? prodsData.map((p: any) => ({
+        ...p,
+        sizes: typeof p.sizes === 'string' ? JSON.parse(p.sizes) : (Array.isArray(p.sizes) ? p.sizes : [])
+      })) : [];
+      setProducts(prods);
       setCategories(Array.isArray(cats) ? cats : []);
       setBranches(Array.isArray(brs) ? brs : []);
     } catch (error) {
@@ -101,7 +108,8 @@ const AdminProducts: React.FC = () => {
       }
       setIsModalOpen(false);
       setEditingProduct(null);
-      setFormData({ name: '', description: '', ingredients: '', price: 0, imageUrl: '', categoryId: '', isAvailable: true });
+      setPricingMode('single');
+      setFormData({ name: '', description: '', ingredients: '', price: 0, imageUrl: '', categoryId: '', isAvailable: true, sizes: [] });
       fetchData();
     } catch (error) {
       console.error("Error saving product:", error);
@@ -142,6 +150,26 @@ const AdminProducts: React.FC = () => {
       console.error('Error toggling availability:', error);
       toast.error(t('common.error'));
     }
+  };
+
+  const addSize = () => {
+    setFormData({
+      ...formData,
+      sizes: [...formData.sizes, { label: '', price: 0 }]
+    });
+  };
+
+  const updateSize = (index: number, field: 'label' | 'price', value: string | number) => {
+    const newSizes = [...formData.sizes];
+    newSizes[index] = { ...newSizes[index], [field]: value };
+    setFormData({ ...formData, sizes: newSizes });
+  };
+
+  const removeSize = (index: number) => {
+    setFormData({
+      ...formData,
+      sizes: formData.sizes.filter((_, i) => i !== index)
+    });
   };
 
   const filteredProducts = (Array.isArray(products) ? products : []).filter(p => {
@@ -237,17 +265,42 @@ const AdminProducts: React.FC = () => {
                 )}
               </div>
               <div className={`flex justify-between items-start mb-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                <h3 className="font-bold text-gray-900">{product.name}</h3>
-                <span className="text-orange-600 font-bold">{product.price} {t('common.currency')}</span>
+                <div className={isRTL ? 'text-right' : 'text-left'}>
+                  <h3 className="font-bold text-gray-900">{product.name}</h3>
+                  {product.sizes && product.sizes.length > 0 && (
+                    <div className={`flex flex-wrap gap-1 mt-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                      {product.sizes.map((s, i) => (
+                        <span key={i} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                          {s.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className={`text-orange-600 font-bold ${isRTL ? 'text-left' : 'text-right'}`}>
+                  {product.sizes && product.sizes.length > 0 ? (
+                    <span className="text-xs text-gray-400 block font-normal">{t('product.starting_from') || 'Starting from'}</span>
+                  ) : null}
+                  {product.price} {t('common.currency')}
+                </div>
               </div>
               <p className={`text-sm text-gray-500 mb-4 line-clamp-2 h-10 ${isRTL ? 'text-right' : 'text-left'}`}>{product.description}</p>
               <div className={`flex items-center justify-between pt-4 border-t border-gray-50 ${isRTL ? 'flex-row-reverse' : ''}`}>
                 <div className={`flex gap-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                  <button
-                    onClick={() => { setEditingProduct(product); setFormData(product); setIsModalOpen(true); }}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                    title={t('common.edit')}
-                  >
+                    <button
+                      type="button"
+                      onClick={() => { 
+                        setEditingProduct(product); 
+                        setFormData({
+                          ...product,
+                          sizes: Array.isArray(product.sizes) ? product.sizes : []
+                        }); 
+                        setPricingMode(Array.isArray(product.sizes) && product.sizes.length > 0 ? 'multi' : 'single');
+                        setIsModalOpen(true); 
+                      }}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                      title={t('common.edit')}
+                    >
                     <Edit2 size={18} />
                   </button>
                   <button
@@ -298,33 +351,129 @@ const AdminProducts: React.FC = () => {
                   <X size={24} />
                 </button>
               </div>
-              <form onSubmit={handleSubmit} className={`p-6 space-y-4 max-h-[80vh] overflow-y-auto ${isRTL ? 'text-right' : 'text-left'}`}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <form onSubmit={handleSubmit} className={`p-6 space-y-6 max-h-[80vh] overflow-y-auto ${isRTL ? 'text-right' : 'text-left'}`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_name')}</label>
                     <input
                       required
                       type="text"
-                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all ${isRTL ? 'text-right' : 'text-left'}`}
                       value={formData.name}
                       onChange={e => setFormData({ ...formData, name: e.target.value })}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_price')}</label>
-                    <input
-                      required
-                      type="number"
-                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
-                      value={formData.price}
-                      onChange={e => setFormData({ ...formData, price: Number(e.target.value) })}
-                    />
+                  
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">{t('admin.product_pricing_mode')}</label>
+                    <div className="flex p-1 bg-gray-50 rounded-xl w-full">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPricingMode('single');
+                          setFormData({ ...formData, sizes: [] });
+                        }}
+                        className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${
+                          pricingMode === 'single' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-400'
+                        }`}
+                      >
+                        {t('admin.product_pricing_single')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPricingMode('multi');
+                          if (formData.sizes.length === 0) {
+                            setFormData({ ...formData, sizes: [{ label: '', price: formData.price }] });
+                          }
+                        }}
+                        className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${
+                          pricingMode === 'multi' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-400'
+                        }`}
+                      >
+                        {t('admin.product_pricing_multi')}
+                      </button>
+                    </div>
                   </div>
-                  <div>
+
+                  {pricingMode === 'single' ? (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_price')}</label>
+                      <input
+                        required
+                        type="number"
+                        className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all ${isRTL ? 'text-right' : 'text-left'}`}
+                        value={formData.price}
+                        onChange={e => setFormData({ ...formData, price: Number(e.target.value) })}
+                      />
+                    </div>
+                  ) : (
+                    <div className="sm:col-span-2 space-y-4">
+                      <div className={`flex items-center justify-between ${isRTL ? 'flex-row-reverse' : ''}`}>
+                        <label className="block text-sm font-bold text-gray-700">
+                          {t('admin.product_sizes')}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={addSize}
+                          className="text-xs bg-orange-600 text-white px-3 py-1 rounded-lg font-bold hover:bg-orange-700 transition-all flex items-center gap-1"
+                        >
+                          <Plus size={14} />
+                          {t('common.add')}
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        {formData.sizes.map((size, index) => (
+                          <div key={index} className={`flex gap-3 items-start p-3 bg-gray-50 rounded-2xl relative ${isRTL ? 'flex-row-reverse' : ''}`}>
+                            <div className="flex-1">
+                              <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">
+                                {t('admin.product_size_label')}
+                              </label>
+                              <input
+                                required
+                                type="text"
+                                placeholder="e.g. Large"
+                                className={`w-full p-2.5 rounded-lg border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-orange-600 ${isRTL ? 'text-right' : 'text-left'}`}
+                                value={size.label}
+                                onChange={e => updateSize(index, 'label', e.target.value)}
+                              />
+                            </div>
+                            <div className="w-28">
+                              <label className="block text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1">
+                                {t('admin.product_price')}
+                              </label>
+                              <input
+                                required
+                                type="number"
+                                step="0.01"
+                                className={`w-full p-2.5 rounded-lg border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-orange-600 ${isRTL ? 'text-right' : 'text-left'}`}
+                                value={size.price}
+                                onChange={e => {
+                                  updateSize(index, 'price', Number(e.target.value));
+                                  if (index === 0) setFormData(prev => ({ ...prev, price: Number(e.target.value) }));
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeSize(index)}
+                              className="mt-6 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              disabled={formData.sizes.length <= 1}
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={pricingMode === 'multi' ? 'sm:col-span-2' : ''}>
                     <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_category')}</label>
                     <select
                       required
-                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none ${isRTL ? 'text-right' : 'text-left'}`}
+                      className={`w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-600 outline-none transition-all ${isRTL ? 'text-right' : 'text-left'}`}
                       value={formData.categoryId}
                       onChange={e => setFormData({ ...formData, categoryId: e.target.value })}
                     >
@@ -355,7 +504,7 @@ const AdminProducts: React.FC = () => {
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">{t('admin.product_image')}</label>
                   <div className="flex flex-col gap-3">
-                    {formData.imageUrl && (
+                    {formData.imageUrl && formData.imageUrl.trim() !== '' && (
                       <div className="relative w-full h-32 rounded-xl overflow-hidden border border-gray-200">
                         <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
                         <button 

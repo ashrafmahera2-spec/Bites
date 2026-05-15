@@ -9,6 +9,7 @@ interface AuthContextType {
   customerLogin: (phone: string, password?: string) => Promise<boolean>;
   customerRegister: (data: any) => Promise<boolean>;
   logout: () => void;
+  hasPermission: (permission: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -18,6 +19,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAdmin, setIsAdmin] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const hasPermission = (permission: string) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (!user.permissions) return false;
+    try {
+      const perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+      return !!perms[permission];
+    } catch {
+      return false;
+    }
+  };
 
   useEffect(() => {
     const adminToken = localStorage.getItem('admin-token');
@@ -128,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, isCustomer, loading, login, customerLogin, customerRegister, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, isCustomer, loading, login, customerLogin, customerRegister, logout, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

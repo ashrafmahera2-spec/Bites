@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import { useLanguage } from './contexts/LanguageContext';
 import { Toaster, toast } from 'sonner';
 import { api } from './services/api';
@@ -28,6 +29,7 @@ const AdminCustomers = lazy(() => import('./pages/admin/AdminCustomers'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports'));
 const AdminDelivery = lazy(() => import('./pages/admin/AdminDelivery'));
 const AdminPwaInstall = lazy(() => import('./pages/admin/AdminPwaInstall'));
+const AdminTables = lazy(() => import('./pages/admin/AdminTables'));
 const CustomerDisplay = lazy(() => import('./pages/admin/CustomerDisplay'));
 const KitchenStatus = lazy(() => import('./pages/KitchenStatus'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
@@ -46,16 +48,29 @@ export default function App() {
     const handleError = (event: ErrorEvent | PromiseRejectionEvent) => {
       const error = 'error' in event ? event.error : event.reason;
       
+      let message = 'Unknown error';
+      let stack = 'No stack trace';
+
+      if (typeof error === 'string') {
+        message = error;
+      } else if (error instanceof Error) {
+        message = error.message;
+        stack = error.stack || 'No stack trace';
+      } else if (error && typeof error === 'object') {
+        message = error.message || error.reason || JSON.stringify(error);
+        stack = error.stack || 'No stack trace';
+      }
+      
       // Log to server
       api.logError({
-        message: error?.message || 'Unknown error',
-        stack: error?.stack || 'No stack trace',
+        message,
+        stack,
         url: window.location.href,
         userAgent: navigator.userAgent
       });
 
       // Handle ChunkLoadError (common in PWAs when new version is deployed)
-      if (error?.name === 'ChunkLoadError' || error?.message?.includes('Loading chunk')) {
+      if (message.includes('ChunkLoadError') || message.includes('Loading chunk')) {
         toast.error(t('common.update_available') || 'New version available. Reloading...', {
           duration: 5000,
           onAutoClose: () => window.location.reload()
@@ -92,42 +107,45 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <CartProvider>
-        <Toaster position="top-center" richColors />
-        <BrowserRouter>
-          <Suspense fallback={<div className="flex h-screen items-center justify-center text-orange-600 font-bold">{t('common.loading')}</div>}>
-            <Routes>
-              <Route path="/" element={<MenuPage />} />
-              <Route path="/cart" element={<CartPage />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/status" element={<KitchenStatus />} />
-              <Route path="/login" element={<LoginPage />} />
-              
-              <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>}>
-                <Route index element={<AdminOverview />} />
-                <Route path="orders" element={<AdminOrders />} />
-                <Route path="products" element={<AdminProducts />} />
-                <Route path="categories" element={<AdminCategories />} />
-                <Route path="offers" element={<AdminOffers />} />
-                <Route path="coupons" element={<AdminCoupons />} />
-                <Route path="customers" element={<AdminCustomers />} />
-                <Route path="reports" element={<AdminReports />} />
-                <Route path="delivery" element={<AdminDelivery />} />
-                <Route path="display" element={<CustomerDisplay />} />
-                <Route path="errors" element={<AdminErrors />} />
-                <Route path="pwa-install" element={<AdminPwaInstall />} />
-                <Route path="kitchen" element={<AdminKitchen />} />
-                <Route path="branches" element={<AdminBranches />} />
-                <Route path="cashier" element={<AdminCashier />} />
-                <Route path="staff" element={<AdminStaff />} />
-                <Route path="settings" element={<AdminSettings />} />
-                <Route path="database" element={<AdminDatabase />} />
-              </Route>
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </CartProvider>
-    </AuthProvider>
+    <SettingsProvider>
+      <AuthProvider>
+        <CartProvider>
+          <Toaster position="top-center" richColors />
+          <BrowserRouter>
+            <Suspense fallback={<div className="flex h-screen items-center justify-center text-orange-600 font-bold">{t('common.loading')}</div>}>
+              <Routes>
+                <Route path="/" element={<MenuPage />} />
+                <Route path="/cart" element={<CartPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/status" element={<KitchenStatus />} />
+                <Route path="/login" element={<LoginPage />} />
+                
+                <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>}>
+                  <Route index element={<AdminOverview />} />
+                  <Route path="orders" element={<AdminOrders />} />
+                  <Route path="products" element={<AdminProducts />} />
+                  <Route path="categories" element={<AdminCategories />} />
+                  <Route path="offers" element={<AdminOffers />} />
+                  <Route path="coupons" element={<AdminCoupons />} />
+                  <Route path="customers" element={<AdminCustomers />} />
+                  <Route path="reports" element={<AdminReports />} />
+                  <Route path="delivery" element={<AdminDelivery />} />
+                  <Route path="display" element={<CustomerDisplay />} />
+                  <Route path="errors" element={<AdminErrors />} />
+                  <Route path="pwa-install" element={<AdminPwaInstall />} />
+                  <Route path="kitchen" element={<AdminKitchen />} />
+                  <Route path="branches" element={<AdminBranches />} />
+                  <Route path="cashier" element={<AdminCashier />} />
+                  <Route path="staff" element={<AdminStaff />} />
+                  <Route path="tables" element={<AdminTables />} />
+                  <Route path="settings" element={<AdminSettings />} />
+                  <Route path="database" element={<AdminDatabase />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </CartProvider>
+      </AuthProvider>
+    </SettingsProvider>
   );
 }
